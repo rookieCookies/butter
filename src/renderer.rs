@@ -1,15 +1,16 @@
-use sokol::gfx::{self as sg, Bindings, PassAction, Pipeline};
+use sokol::{debugtext as sdtx, gfx::{self as sg, Bindings, PassAction, Pipeline}};
 use tracing::{trace, Level};
 
-use crate::{asset_manager::{AssetManager, TextureId}, engine::Engine, math::{matrix::{Matrix, Matrix4}, vector::{Vec2, Vec3, Vec4}}, Camera};
+use crate::{asset_manager::{AssetManager, TextureId}, math::{matrix::{Matrix, Matrix4}, vector::{Vec2, Vec3, Vec4}}, settings::ProjectSettings, Camera};
 
 #[derive(Debug)]
 pub struct Renderer {
     pub pass_action: PassAction,
     pub bind: Bindings,
-    pub pip: Pipeline,
+    pub render_pip: Pipeline,
 
     pub vp : Matrix4<f32>,
+    pub aspect_ratio: f32,
 
     // stats
     pub draw_calls: usize,
@@ -18,27 +19,31 @@ pub struct Renderer {
 
 
 impl Renderer {
-    pub fn new() -> Self {
+    pub fn new(project_settings: &ProjectSettings) -> Self {
         Self {
             pass_action: PassAction::new(),
             bind: Bindings::new(),
-            pip: Pipeline::new(),
+            render_pip: Pipeline::new(),
             vp: Matrix4::IDENTITY,
             draw_calls: 0,
+            aspect_ratio: {
+                let window = &project_settings.window;
+                window.width as f32 / window.height as f32
+            },
         }
 
     }
 
 
-    pub fn set_camera(&mut self, camera: &Camera, aspect_ratio: f32) {
+    pub fn set_camera(&mut self, camera: &Camera) {
         let span = tracing::span!(Level::TRACE, "Renderer::set_camera");
         let _handle = span.entered();
 
         let view_proj = {
             trace!("create view projection matrix");
             let n = camera.ortho;
-            let left = -n*0.5*aspect_ratio;
-            let right = n*0.5*aspect_ratio;
+            let left = -n*0.5*self.aspect_ratio;
+            let right = n*0.5*self.aspect_ratio;
             let down = -n*0.5;
             let up = n*0.5;
 
@@ -66,20 +71,36 @@ impl Renderer {
         self.draw_calls = 0;
 
         trace!("begin pass");
+        self.pass_action.colors[0].clear_value = sg::Color { r: 0.0, g: 0.0, b: 0.0, a: 1.0 };
         sg::begin_pass(&sg::Pass {
             action: self.pass_action,
             swapchain: sokol::glue::swapchain(),
             ..Default::default()
         });
 
-
         trace!("apply pipeline");
-        sg::apply_pipeline(self.pip);
+        sg::apply_pipeline(self.render_pip);
+
+        let physical_height = sokol::app::heightf();
+        let physical_width = sokol::app::widthf();
+
+        let base = if physical_width / self.aspect_ratio > physical_height { physical_height }
+                   else { physical_width / self.aspect_ratio };
+
+        let view_height = base;
+        let view_width = view_height*self.aspect_ratio;
+
+        let offset_width = (physical_width - view_width) * 0.5;
+        let offset_height = (physical_height - view_height) * 0.5;
+
+        sg::apply_viewportf(offset_width, offset_height, view_width, view_height, true);
+        //sdtx::canvas(physical_width, physical_height);
     }
 
 
     pub fn end_frame(&mut self) {
         trace!("end pass & commit");
+        sdtx::draw();
         sg::end_pass();
         sg::commit();
     }
@@ -87,6 +108,20 @@ impl Renderer {
 
     pub fn draw_quad<'me>(&'me mut self) -> FrameQuad<'me> {
         FrameQuad::new(self)
+    }
+
+
+    pub fn clear_background(&mut self, asset_manager: &AssetManager, colour: Vec4) {
+        let vp = self.vp;
+        self.vp = Matrix4::IDENTITY;
+
+        self.draw_quad()
+            .position(Vec2::new(0.0, 0.0))
+            .scale(Vec2::new(1.0, 1.0))
+            .modulate(colour)
+            .commit(asset_manager);
+
+        self.vp = vp;
     }
 }
 

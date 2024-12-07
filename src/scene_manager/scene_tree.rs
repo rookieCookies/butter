@@ -1,11 +1,10 @@
-use std::{cell::RefCell, collections::HashMap};
+use std::collections::HashMap;
 
 use genmap::{GenMap, Handle};
 use sti::{define_key, keyed::Key};
-use toml::to_string_pretty;
 use tracing::info;
 
-use crate::{engine::{Engine, EngineHandle}, math::vector::Vec2, scene_manager::node::ComponentId, script_manager::{ScriptId, ScriptManager}};
+use crate::{engine::Engine, math::vector::Vec2, scene_manager::node::ComponentId, script_manager::{ScriptId, ScriptManager}};
 
 use super::node::Node;
 
@@ -43,7 +42,7 @@ impl SceneTree {
 
         for new_handle in hm.values() {
             let new_handle = hm.get(new_handle).unwrap();
-            let mut new_node = new.map.get_mut(new_handle.0).unwrap();
+            let new_node = new.map.get_mut(new_handle.0).unwrap();
 
             for c in new_node.children.iter_mut() {
                 *c = *hm.get(c).unwrap();
@@ -54,7 +53,7 @@ impl SceneTree {
     }
 
 
-    pub fn instantiate(engine: &mut EngineHandle, scene: &SceneTree) -> NodeId {
+    pub fn instantiate(engine: &mut Engine, scene: &SceneTree) -> NodeId {
         let mut hashmap = HashMap::new();
         let mut engine_ref = engine.get_mut();
         let this = &mut engine_ref.scene_manager.current;
@@ -69,7 +68,6 @@ impl SceneTree {
         while let Some(node_id) = stack.pop() {
             let node = scene.get(node_id);
 
-            dbg!(node);
             let insert_node = Node {
                 properties: node.properties,
                 children: vec![],
@@ -89,7 +87,6 @@ impl SceneTree {
             }
 
             this.get_mut(insert_node_id).node_id = insert_node_id;
-            dbg!(this.get_mut(insert_node_id));
 
             stack.extend_from_slice(&node.children);
         }

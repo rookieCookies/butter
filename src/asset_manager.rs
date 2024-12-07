@@ -7,7 +7,7 @@ use sti::{define_key, keyed::KVec};
 use texture::{Texture, TextureBuilder, TextureLoadType};
 use tracing::error;
 
-use crate::{engine::{Engine, EngineHandle}, script_manager::ScriptManager};
+use crate::{engine::Engine, script_manager::ScriptManager};
 
 define_key!(u32, pub TextureId);
 
@@ -66,7 +66,7 @@ impl AssetManager {
     }
 
 
-    pub fn from_script(engine: &mut EngineHandle, path: &str) -> Option<TextureId> {
+    pub fn from_script(engine: &mut Engine, path: &str) -> Option<TextureId> {
         let script = ScriptManager::load_script(engine, path);
         let engine = engine.get();
         let script = engine.script_manager.script(script);

@@ -1,8 +1,8 @@
 #![allow(static_mut_refs)]
-use std::{cell::Cell, marker::PhantomData, sync::atomic::AtomicBool};
+use std::cell::Cell;
 
 use mlua::{Error, UserData};
-use crate::{engine::{Engine, EngineHandle}, math::{matrix::{Matrix, Matrix4}, vector::{Vec2, Vec4}}, renderer::Renderer};
+use crate::{engine::Engine, math::vector::{Vec2, Vec4}};
 
 
 static mut DRAW : Cell<bool> = Cell::new(false);
@@ -31,7 +31,7 @@ impl UserData for Draw {
                                           in the 'draw' function of a component"))
             }
 
-            EngineHandle::generate().with(|engine| {
+            Engine::generate().with(|engine| {
                 engine
                     .renderer
                     .draw_quad()

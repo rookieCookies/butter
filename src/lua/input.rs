@@ -1,33 +1,33 @@
 use mlua::Value;
 
-use crate::{engine::{Engine, EngineHandle}, event_manager::Keycode};
+use crate::{engine::Engine, event_manager::Keycode};
 
 pub struct Input;
 
 impl mlua::UserData for Input {
     fn add_methods<M: mlua::UserDataMethods<Self>>(methods: &mut M) {
         methods.add_function("is_key_down", |_, key: Keycode| {
-            Ok(EngineHandle::generate().get().input_manager.is_key_down(key))
+            Ok(Engine::generate().get().input_manager.is_key_down(key))
         });
 
         methods.add_function("is_key_up", |_, key: Keycode| {
-            Ok(EngineHandle::generate().get().input_manager.is_key_up(key))
+            Ok(Engine::generate().get().input_manager.is_key_up(key))
         });
 
         methods.add_function("is_key_pressed", |_, key: Keycode| {
-            Ok(EngineHandle::generate().get().input_manager.is_key_just_pressed(key))
+            Ok(Engine::generate().get().input_manager.is_key_just_pressed(key))
         });
 
         methods.add_function("is_key_released", |_, key: Keycode| {
-            Ok(EngineHandle::generate().get().input_manager.is_key_just_released(key))
+            Ok(Engine::generate().get().input_manager.is_key_just_released(key))
         });
 
         methods.add_function("get_axis", |_, (pos, neg): (Keycode, Keycode)| {
-            Ok(EngineHandle::generate().get().input_manager.get_axis(pos, neg))
+            Ok(Engine::generate().get().input_manager.get_axis(pos, neg))
         });
 
         methods.add_function("get_vector", |_, (pos_x, neg_x, pos_y, neg_y): (Keycode, Keycode, Keycode, Keycode)| {
-            Ok(EngineHandle::generate().get().input_manager.get_vector(pos_x, neg_x, pos_y, neg_y))
+            Ok(Engine::generate().get().input_manager.get_vector(pos_x, neg_x, pos_y, neg_y))
         });
     }
 }

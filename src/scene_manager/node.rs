@@ -2,7 +2,7 @@ use mlua::AnyUserData;
 use sti::{define_key, keyed::{KIter, KIterMut, KVec}};
 use tracing::error;
 
-use crate::{asset_manager::{texture::TextureLoadType, AssetManager, TextureId}, engine::{Engine, EngineHandle}, lua::node::NodeUserData, math::vector::{Colour, Vec2, Vec4}, script_manager::{fields::{FieldId, FieldValue}, ScriptId, ScriptManager}};
+use crate::{asset_manager::{texture::TextureLoadType, AssetManager, TextureId}, engine::Engine, lua::node::NodeUserData, math::vector::{Colour, Vec2, Vec4}, script_manager::{fields::{FieldId, FieldValue}, ScriptId}};
 
 use super::scene_tree::{NodeId, SceneTree};
 
@@ -41,7 +41,7 @@ pub struct Component {
     pub script: ScriptId,
     pub fields: KVec<FieldId, FieldValue>,
     pub is_ready: bool,
-    pub userdata: Option<AnyUserData>,
+    userdata: Option<AnyUserData>,
 }
 
 
@@ -218,7 +218,7 @@ impl NodeProperties {
 
 
 impl NodeProperties {
-    pub fn from_table(engine: &mut EngineHandle,
+    pub fn from_table(engine: &mut Engine,
                       table: &toml::Table) -> Option<Self> {
         let parent_name = "";
         fn read<T>(parent_name: &str, table: &toml::Table, property: &str,

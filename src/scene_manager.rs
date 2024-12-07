@@ -1,7 +1,6 @@
 use std::collections::HashMap;
 
 use scene_tree::SceneTree;
-use sti::keyed::KVec;
 
 use crate::{math::vector::Vec2, physics::PhysicsServer};
 
@@ -36,8 +35,7 @@ impl SceneManager {
         let Some(scene) = self.scenes.get(scene)
         else { return false };
 
-        self.physics = PhysicsServer::new(Vec2::new(self.physics.gravity.x,
-                                                    self.physics.gravity.y));
+        self.physics = PhysicsServer::new(self.physics.gravity);
 
         self.current = scene.clone();
 

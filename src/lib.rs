@@ -1,4 +1,5 @@
 #![feature(str_as_str)]
+#![allow(unused_attributes)]
 
 pub mod settings;
 pub mod math;
@@ -15,9 +16,9 @@ pub mod renderer;
 pub mod timer;
 
 use core::str;
-use std::{ffi::CString, fs, process::exit};
+use std::{ffi::CString, process::exit};
 
-use engine::{Engine, EngineHandle, EngineStatic};
+use engine::Engine;
 use math::vector::{Vec2, Vec3};
 use sokol::{app as sapp, debugtext::{self as sdtx}, gfx::{self as sg, ImageSampleType, ImageType, SamplerType, ShaderStage, UniformLayout}, glue as sglue, time as stime};
 use event_manager::{Event, Keycode, MouseButton};
@@ -84,7 +85,7 @@ pub fn start() -> ! {
 
 
 extern "C" fn init() {
-    let mut engine = EngineHandle::generate();
+    let mut engine = Engine::generate();
 
     sg::setup(&sg::Desc {
         environment: sglue::environment(),
@@ -103,6 +104,7 @@ extern "C" fn init() {
         desc.fonts[0] = sdtx::font_kc853();
 
         sdtx::setup(&desc);
+        sdtx::canvas(Engine::project_settings().window.width as f32, Engine::project_settings().window.height as f32);
     }
 
     let mut engine_ref = engine.get_mut();
@@ -156,14 +158,14 @@ extern "C" fn init() {
             ..Default::default()
         };
         pipeline.label = c"pipeline".as_ptr();
-        renderer.pip = sg::make_pipeline(&pipeline);
+        renderer.render_pip = sg::make_pipeline(&pipeline);
     }
 
     // set background colour
     {
         renderer.pass_action.colors[0] = sg::ColorAttachmentAction {
             load_action: sg::LoadAction::Clear,
-            clear_value: sg::Color { r: 1.0, g: 1.0, b: 1.0, a: 1.0 },
+            clear_value: sg::Color { r: 0.0, g: 0.0, b: 0.0, a: 1.0 },
             ..Default::default()
         };
     }
@@ -176,7 +178,7 @@ extern "C" fn init() {
 
 
 extern "C" fn frame() {
-    let mut engine = EngineHandle::generate();
+    let mut engine = Engine::generate();
 
     Engine::update(&mut engine);
     Engine::render(&mut engine);
@@ -184,7 +186,7 @@ extern "C" fn frame() {
 
 
 extern "C" fn event(event: *const sapp::Event) {
-    let mut engine = EngineHandle::generate();
+    let mut engine = Engine::generate();
     let event = unsafe { *event };
 
     let event = match event._type {

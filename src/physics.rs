@@ -1,13 +1,13 @@
 use std::{collections::HashMap, sync::Mutex, time::Instant};
 
 use mlua::{AnyUserData, Lua};
-use rapier2d::{self as rape, prelude::{ActiveEvents, CCDSolver, Collider, ColliderBuilder, ColliderHandle, ColliderSet, CollisionEvent, DefaultBroadPhase, ImpulseJointSet, IntegrationParameters, IslandManager, MultibodyJointSet, NarrowPhase, PhysicsPipeline, QueryPipeline, RigidBody, RigidBodyBuilder, RigidBodyHandle, RigidBodySet}};
+use rapier2d::prelude::{ActiveEvents, CCDSolver, Collider, ColliderBuilder, ColliderHandle, ColliderSet, CollisionEvent, DefaultBroadPhase, ImpulseJointSet, IntegrationParameters, IslandManager, MultibodyJointSet, NarrowPhase, PhysicsPipeline, QueryPipeline, RigidBody, RigidBodyBuilder, RigidBodyHandle, RigidBodySet};
 use tracing::info;
 
-use crate::{engine::{Engine, Timers}, lua::node::NodeUserData, math::vector::Vec2, scene_manager::scene_tree::{NodeId, SceneTree}, timer::Timer};
+use crate::{engine::Timers, lua::node::NodeUserData, math::vector::Vec2, scene_manager::scene_tree::{NodeId, SceneTree}};
 
 pub struct PhysicsServer {
-    pub gravity: rape::na::Vector2<f32>,
+    pub gravity: Vec2,
     integration_params: IntegrationParameters,
     physics_pipeline: PhysicsPipeline,
     island_manager: IslandManager,
@@ -23,13 +23,15 @@ pub struct PhysicsServer {
     collider_userdata: HashMap<ColliderId, ColliderData>,
     rigidbody_userdata: HashMap<RigidBodyId, AnyUserData>,
     pub node_to_rigidbody: HashMap<NodeId, RigidBodyId>,
+
+    last_tick: u64,
 }
 
 
 impl PhysicsServer {
     pub fn new(gravity: Vec2) -> Self {
         Self {
-            gravity: rape::na::Vector2::new(gravity.x, gravity.y),
+            gravity,
             integration_params: IntegrationParameters::default(),
             physics_pipeline: PhysicsPipeline::new(),
             island_manager: IslandManager::new(),
@@ -45,7 +47,19 @@ impl PhysicsServer {
             collider_userdata: HashMap::new(),
             rigidbody_userdata: HashMap::new(),
             node_to_rigidbody: HashMap::new(),
+            last_tick: 0,
         }
+    }
+
+
+    pub fn set_framerate(&mut self, fps: usize) {
+        let dt = 1.0/fps as f32;
+        self.integration_params.dt = dt;
+    }
+
+
+    pub fn init(&mut self) {
+        self.last_tick = sokol::time::now();
     }
 
 
@@ -118,10 +132,15 @@ impl PhysicsServer {
     }
 
 
-    pub fn tick(&mut self, time: f32, scene: &mut SceneTree, timers: &mut Timers) -> Vec<(mlua::Function, NodeUserData, NodeUserData)> {
+    pub fn tick(&mut self, scene: &mut SceneTree, timers: &mut Timers) -> Vec<(mlua::Function, NodeUserData, NodeUserData)> {
         let timer = Instant::now();
 
-        self.integration_params.dt = time;
+        let physics_dt = self.integration_params.dt as f64;
+        let physics_dt = physics_dt * 1000000000.0;
+        let physics_dt = physics_dt as u64;
+
+        let now = sokol::time::now();
+        let mut time_since_last_tick = sokol::time::diff(now, self.last_tick);
 
         let event_handler = EventHandler {
             calls: Mutex::new(vec![]),
@@ -129,23 +148,36 @@ impl PhysicsServer {
 
         {
             let timer = Instant::now();
+            let mut num = 0;
 
-            self.physics_pipeline.step(
-                &self.gravity,
-                &self.integration_params,
-                &mut self.island_manager,
-                &mut self.broad_phase,
-                &mut self.narrow_phase,
-                &mut self.rigid_body_set,
-                &mut self.collider_set,
-                &mut self.impulse_joint_set,
-                &mut self.multibody_joint_set,
-                &mut self.ccd_solver,
-                Some(&mut self.query_pipeline),
-                &(),
-                &event_handler,
-            );
+            while time_since_last_tick >= physics_dt {
+                self.physics_pipeline.step(
+                    &self.gravity.into(),
+                    &self.integration_params,
+                    &mut self.island_manager,
+                    &mut self.broad_phase,
+                    &mut self.narrow_phase,
+                    &mut self.rigid_body_set,
+                    &mut self.collider_set,
+                    &mut self.impulse_joint_set,
+                    &mut self.multibody_joint_set,
+                    &mut self.ccd_solver,
+                    Some(&mut self.query_pipeline),
+                    &(),
+                    &event_handler,
+                );
 
+                time_since_last_tick -= physics_dt;
+                num += 1;
+            }
+
+            if num > 0 {
+                self.last_tick = now;
+                self.last_tick -= time_since_last_tick;
+            }
+
+
+            timers.physics_engine_iter_amount = num;
             timers.physics_engine_physics_time = timer.elapsed();
         }
 
@@ -278,5 +310,19 @@ impl rapier2d::prelude::PhysicsHooks for EventHandler {
 
     fn modify_solver_contacts(&self, _context: &mut rapier2d::prelude::ContactModificationContext) {
         dbg!("hi");
+    }
+}
+
+
+impl From<Vec2> for rapier2d::math::Vector<f32> {
+    fn from(value: Vec2) -> Self {
+        Self::new(value.x, value.y)
+    }
+}
+
+
+impl From<rapier2d::math::Vector<f32>> for Vec2 {
+    fn from(value: rapier2d::math::Vector<f32>) -> Self {
+        Self::new(value.x, value.y)
     }
 }

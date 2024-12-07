@@ -1,26 +1,26 @@
-use std::{cell::{Cell, Ref, RefCell, RefMut}, marker::PhantomData, ptr::null, time::{Duration, Instant}};
+use std::{cell::{Ref, RefCell, RefMut}, ptr::null, time::{Duration, Instant}};
 
 use sokol::{debugtext as sdtx, app as sapp, time as stime};
 use tracing::{error, info, trace, Level};
 
-use crate::{asset_manager::AssetManager, event_manager::{EventManager, Keycode}, input_manager::InputManager, lua::{self}, math::vector::{Vec2, Vec3, Vec4}, renderer::Renderer, scene_manager::{node::{ComponentId, NodeProperties}, scene_tree::SceneTree, SceneManager}, script_manager::ScriptManager, settings::ProjectSettings, timer::Timer, Camera};
+use crate::{asset_manager::AssetManager, event_manager::{EventManager, Keycode}, input_manager::InputManager, lua::{self}, math::vector::{Colour, Vec2, Vec3, Vec4}, renderer::Renderer, scene_manager::{node::{ComponentId, NodeProperties}, scene_tree::SceneTree, SceneManager}, script_manager::ScriptManager, settings::ProjectSettings, Camera};
 
 
 static mut ENGINE : *const EngineStatic = null();
 
 
 pub struct EngineStatic {
-    engine: RefCell<Engine>,
+    engine: RefCell<ManagerManager>,
     project_settings: ProjectSettings,
     lua: mlua::Lua,
 }
 
 
-pub struct EngineHandle {}
+pub struct Engine {}
 
 
 #[derive(Debug)]
-pub struct Engine {
+pub struct ManagerManager {
     pub event_manager: EventManager,
     pub input_manager: InputManager,
     pub script_manager: ScriptManager,
@@ -49,6 +49,7 @@ pub struct Timers {
     pub physics_engine_physics_time: Duration,
     pub physics_engine_conv_time: Duration,
     pub physics_engine_event_time: Duration,
+    pub physics_engine_iter_amount: usize,
 
     pub io_event_time: Duration,
 
@@ -65,13 +66,13 @@ impl Engine {
             return
         }
 
-        let slf = Self {
+        let slf = ManagerManager {
             event_manager: EventManager::new(),
             script_manager: ScriptManager::new(),
             input_manager: InputManager::new(),
             asset_manager: AssetManager::new(),
             scene_manager: SceneManager::new(project_settings.world.gravity),
-            renderer: Renderer::new(),
+            renderer: Renderer::new(&project_settings),
             camera: Camera::new(Vec3::new(0.0, 0.0, 0.0), Vec3::new(0.0, 1.0, 0.0), 25.0),
 
             last_frame: 0,
@@ -107,7 +108,7 @@ impl Engine {
     }
 
 
-    pub fn change_scene(engine: &mut EngineHandle, scene: &str) {
+    pub fn change_scene(engine: &mut Engine, scene: &str) {
         let nodes = engine.with(|engine| {
             engine.scene_manager.load(scene);
             engine.scene_manager.current.iter_vec()
@@ -147,14 +148,13 @@ impl Engine {
 
 
                 functions.ready(path, &userdata);
-                println!("node {:?} idx {comp_index}", node);
             }
         }
     }
 
 
     // this is called after all the sokol stuff is initialised
-    pub fn init(engine: &mut EngineHandle) {
+    pub fn init(engine: &mut Engine) {
         info!("intializing engine");
 
         {
@@ -164,6 +164,7 @@ impl Engine {
 
         engine.with(|engine| {
             engine.asset_manager.init();
+            engine.scene_manager.physics.init();
         });
 
         ScriptManager::load_current_dir(engine);
@@ -183,8 +184,9 @@ impl Engine {
     }
 
 
-    pub fn update(engine: &mut EngineHandle) {
+    pub fn update(engine: &mut Engine) {
         let timer = Instant::now();
+
         // update timers
         engine.with(|engine| {
             let now = stime::now();
@@ -198,6 +200,7 @@ impl Engine {
             engine.now = now;
         });
 
+
         engine.with(|engine| {
             let timer = Instant::now();
 
@@ -208,12 +211,6 @@ impl Engine {
             engine.timers.io_event_time = timer.elapsed();
         });
 
-
-        let events = engine.with(|engine| {
-            engine.scene_manager.physics.tick(engine.dt,
-                                              &mut engine.scene_manager.current,
-                                              &mut engine.timers)
-        });
 
         {
             trace!("update all nodes");
@@ -260,6 +257,12 @@ impl Engine {
                          engine.timers.node_update_time = timer.elapsed());
         }
         
+
+        let events = engine.with(|engine| {
+            engine.scene_manager.physics.set_framerate(240);
+            engine.scene_manager.physics.tick(&mut engine.scene_manager.current,
+                                              &mut engine.timers)
+        });
         {
             trace!("call events");
 
@@ -289,7 +292,7 @@ impl Engine {
     }
 
 
-    pub fn render(engine: &mut EngineHandle) {
+    pub fn render(engine: &mut Engine) {
         let span = tracing::span!(Level::TRACE, "render");
         let _handle = span.entered();
 
@@ -300,8 +303,9 @@ impl Engine {
 
         // begin render
         engine.with(|engine| {
-            engine.renderer.set_camera(&engine.camera, aspect_ratio);
+            engine.renderer.set_camera(&engine.camera);
             engine.renderer.begin_frame();
+            engine.renderer.clear_background(&engine.asset_manager, Colour::new(1.0, 1.0, 1.0, 1.0));
         });
         
         // render nodes
@@ -442,7 +446,6 @@ impl Engine {
         // debug text
         let mut engine = engine.get_mut();
         trace!("draw debug text");
-        sdtx::canvas(sapp::widthf() * 0.5, sapp::heightf() * 0.5);
         sdtx::font(0);
         sdtx::color3f(0.0, 0.0, 0.0);
         sdtx::puts(&format!("{} FPS", (1.0/engine.dt) as u64));
@@ -487,6 +490,8 @@ impl Engine {
         sdtx::crlf();
         sdtx::puts(&format!("- EVENT TIME: {}", engine.timers.physics_engine_event_time.as_micros()));
         sdtx::crlf();
+        sdtx::puts(&format!("- ITER AMOUNT: {}", engine.timers.physics_engine_iter_amount));
+        sdtx::crlf();
         sdtx::puts(&format!("IO EVENT TIME: {}", engine.timers.io_event_time.as_micros()));
         sdtx::crlf();
         sdtx::puts(&format!("INFO"));
@@ -495,32 +500,31 @@ impl Engine {
         sdtx::crlf();
         sdtx::puts(&format!("COLLIDER COUNT: {}", engine.scene_manager.physics.collider_set.len()));
         sdtx::crlf();
-        sdtx::draw();
 
         engine.renderer.end_frame();
     }
 }
 
 
-impl EngineHandle {
-    pub fn generate() -> EngineHandle {
-        EngineHandle {}
+impl Engine {
+    pub fn generate() -> Engine {
+        Engine {}
     }
 
 
-    pub fn get<'a>(&'a self) -> Ref<'a, Engine> {
+    pub fn get<'a>(&'a self) -> Ref<'a, ManagerManager> {
         assert!(unsafe { !ENGINE.is_null() });
         unsafe { (*ENGINE).engine.borrow() }
     }
 
 
-    pub fn get_mut<'a>(&'a mut self) -> RefMut<'a, Engine> {
+    pub fn get_mut<'a>(&'a mut self) -> RefMut<'a, ManagerManager> {
         assert!(unsafe { !ENGINE.is_null() });
         unsafe { (*ENGINE).engine.borrow_mut() }
     }
 
 
-    pub fn with<T, F: FnOnce(&mut Engine) -> T>(&mut self, f: F) -> T {
+    pub fn with<T, F: FnOnce(&mut ManagerManager) -> T>(&mut self, f: F) -> T {
         let mut engine = Self::get_mut(self);
         f(&mut engine)
     }

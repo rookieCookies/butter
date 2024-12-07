@@ -7,7 +7,7 @@ use mlua::AnyUserData;
 use sti::{define_key, keyed::KVec};
 use tracing::{error, info, trace, warn};
 
-use crate::{asset_manager::TextureId, engine::{Engine, EngineHandle}};
+use crate::{asset_manager::TextureId, engine::Engine};
 
 define_key!(u32, pub ScriptId);
 
@@ -63,7 +63,7 @@ impl ScriptManager {
             draw: None,
         };
 
-        scripts.push(Script { path: "<default>".to_string().leak(), name: String::new(), fields_ids: HashMap::new(), fields_vec: KVec::new(), functions });
+        scripts.push(Script { path: "<default>", name: String::new(), fields_ids: HashMap::new(), fields_vec: KVec::new(), functions });
  
         Self {
             scripts,
@@ -72,7 +72,7 @@ impl ScriptManager {
    }
 
 
-    pub fn load_current_dir(engine: &mut EngineHandle) {
+    pub fn load_current_dir(engine: &mut Engine) {
         info!("loading current directory scripts");
 
         let mut stack = vec![];
@@ -132,7 +132,7 @@ impl ScriptManager {
     }
 
 
-    pub fn load_script(engine: &mut EngineHandle, path: &str) -> ScriptId {
+    pub fn load_script(engine: &mut Engine, path: &str) -> ScriptId {
         let span = tracing::span!(tracing::Level::ERROR, "loading script ", path);
         let _handle = span.entered();
 
@@ -146,7 +146,6 @@ impl ScriptManager {
             return *script;
         }
 
-        dbg!(&sm.path_to_script);
 
         let Ok(canon) = std::fs::canonicalize(path)
         else {

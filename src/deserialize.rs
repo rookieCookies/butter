@@ -1,14 +1,14 @@
-use std::{cell::RefCell, str::FromStr};
+use std::str::FromStr;
 
 use sti::keyed::{KVec, Key};
 use tracing::{error, info, trace, warn, Level};
 
-use crate::{asset_manager::AssetManager, engine::{Engine, EngineHandle}, lua::node::NodeUserData, math::vector::Vec3, scene_manager::{node::{Component, ComponentId, Components, Node, NodeProperties}, scene_tree::{NodeId, SceneTree}}, script_manager::{fields::{FieldType, FieldValue}, ScriptManager}};
+use crate::{engine::Engine, math::vector::Vec3, scene_manager::{node::{Component, ComponentId, Components, Node, NodeProperties}, scene_tree::{NodeId, SceneTree}}, script_manager::{fields::{FieldType, FieldValue}, ScriptManager}};
 
 impl SceneTree {
     /// Loads a file as a 'SceneTree'
     /// Returns an empty 'SceneTree' if an error occurs
-    pub fn from_file<A>(engine: &mut EngineHandle, path: A) -> SceneTree
+    pub fn from_file<A>(engine: &mut Engine, path: A) -> SceneTree
     where A: AsRef<std::path::Path> {
         let path = path.as_ref();
         let path_str = path.to_string_lossy();
@@ -40,7 +40,7 @@ impl SceneTree {
 
     /// Loads a file as a 'SceneTree'
     /// Returns an empty 'SceneTree' if an error occurs
-    pub fn from_table(engine: &mut EngineHandle, table: &toml::Table) -> SceneTree {
+    pub fn from_table(engine: &mut Engine, table: &toml::Table) -> SceneTree {
         let mut scene = SceneTree::new();
         let inner_scene = scene.map.inner_unck_mut();
         
@@ -147,7 +147,7 @@ impl SceneTree {
 
 
 impl Node {
-    pub fn from_entry(engine: &mut EngineHandle, index: NodeId, value: &toml::Value) -> Option<Node> {
+    pub fn from_entry(engine: &mut Engine, index: NodeId, value: &toml::Value) -> Option<Node> {
         let Some(table) = value.as_table()
         else {
             error!("can't parse the value as a table");
@@ -192,7 +192,7 @@ impl Node {
                 break 'me None;
             };
 
-            Components::from_table(engine, index, components)
+            Components::from_table(engine, components)
         };
 
 
@@ -210,7 +210,7 @@ impl Node {
 
 
 impl Components {
-    pub fn from_table(engine: &mut EngineHandle, node: NodeId, table: &toml::Table) -> Option<Components> {
+    pub fn from_table(engine: &mut Engine, table: &toml::Table) -> Option<Components> {
         let mut vec = KVec::with_cap(table.len());
         let mut has_errored = false;
 
