@@ -17,7 +17,7 @@ pub mod timer;
 use core::str;
 use std::{ffi::CString, fs, process::exit};
 
-use engine::Engine;
+use engine::{Engine, EngineHandle, EngineStatic};
 use math::vector::{Vec2, Vec3};
 use sokol::{app as sapp, debugtext::{self as sdtx}, gfx::{self as sg, ImageSampleType, ImageType, SamplerType, ShaderStage, UniformLayout}, glue as sglue, time as stime};
 use event_manager::{Event, Keycode, MouseButton};
@@ -58,11 +58,10 @@ pub fn start() -> ! {
     }
 
 
-    let engine = Engine::new(project_settings.clone());
-    let engine = Box::leak(Box::new(engine));
+    Engine::new(project_settings.clone());
     info!("engine created");
 
-    let title = to_cstring("window title", engine.project_settings.window.title.clone());
+    let title = to_cstring("window title", Engine::project_settings().window.title.clone());
 
     sapp::run(&sapp::Desc {
         init_cb: Some(init),
@@ -85,7 +84,7 @@ pub fn start() -> ! {
 
 
 extern "C" fn init() {
-    let engine = Engine::get();
+    let mut engine = EngineHandle::generate();
 
     sg::setup(&sg::Desc {
         environment: sglue::environment(),
@@ -93,6 +92,7 @@ extern "C" fn init() {
             func: Some(sokol::log::slog_func),
             ..Default::default()
         },
+        uniform_buffer_size: 4 * 1024 * 1024 * 10,
         ..Default::default()
     });
 
@@ -105,8 +105,8 @@ extern "C" fn init() {
         sdtx::setup(&desc);
     }
 
-       
-    let mut renderer = engine.renderer.borrow_mut();
+    let mut engine_ref = engine.get_mut();
+    let renderer = &mut engine_ref.renderer;
     // set up the quad for rendering
     {
         let verticies : [ModelVertex; 6] = [
@@ -170,20 +170,21 @@ extern "C" fn init() {
 
     info!("using backend '{:?}'", sg::query_backend());
 
-    // engine stuff
-    engine.init();
+    drop(engine_ref);
+    Engine::init(&mut engine);
 }
 
 
 extern "C" fn frame() {
-    let engine = Engine::get();
-    engine.update();
-    engine.render();
+    let mut engine = EngineHandle::generate();
+
+    Engine::update(&mut engine);
+    Engine::render(&mut engine);
 }
 
 
 extern "C" fn event(event: *const sapp::Event) {
-    let engine = Engine::get();
+    let mut engine = EngineHandle::generate();
     let event = unsafe { *event };
 
     let event = match event._type {
@@ -244,7 +245,7 @@ extern "C" fn event(event: *const sapp::Event) {
         sapp::EventType::Num => todo!(),
     };
 
-    engine.event_manager.borrow_mut().push_event(event);
+    engine.get_mut().event_manager.push_event(event);
 }
 
 

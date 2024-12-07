@@ -7,7 +7,7 @@ use mlua::AnyUserData;
 use sti::{define_key, keyed::KVec};
 use tracing::{error, info, trace, warn};
 
-use crate::{asset_manager::TextureId, engine::Engine};
+use crate::{asset_manager::TextureId, engine::{Engine, EngineHandle}};
 
 define_key!(u32, pub ScriptId);
 
@@ -72,7 +72,7 @@ impl ScriptManager {
    }
 
 
-    pub fn load_current_dir(&mut self) {
+    pub fn load_current_dir(engine: &mut EngineHandle) {
         info!("loading current directory scripts");
 
         let mut stack = vec![];
@@ -118,7 +118,7 @@ impl ScriptManager {
                 else { continue };
 
                 if ext.to_str() == Some("lua") {
-                    self.load_script(path.to_str().unwrap());
+                    Self::load_script(engine, path.to_str().unwrap());
                 }
             };
         }
@@ -132,16 +132,21 @@ impl ScriptManager {
     }
 
 
-    pub fn load_script(&mut self, path: &str) -> ScriptId {
+    pub fn load_script(engine: &mut EngineHandle, path: &str) -> ScriptId {
         let span = tracing::span!(tracing::Level::ERROR, "loading script ", path);
         let _handle = span.entered();
 
         info!("loading script");
 
-        if let Some(script) = self.path_to_script.get(path) {
+        let engine_ref = engine.get();
+        let sm = &engine_ref.script_manager;
+
+        if let Some(script) = sm.path_to_script.get(path) {
             info!("script is already loaded");
             return *script;
         }
+
+        dbg!(&sm.path_to_script);
 
         let Ok(canon) = std::fs::canonicalize(path)
         else {
@@ -155,9 +160,13 @@ impl ScriptManager {
             return ScriptId::EMPTY;
         };
 
-        let chunk = Engine::get().lua.load(file);
+        // we drop the engine ref so the handle is free
+        drop(engine_ref);
+        trace!("calling lua");
+        let chunk = Engine::lua().load(file);
         let properties = unwrap_lua!(chunk.call::<mlua::Value>(()), ScriptId::EMPTY,
         format!("while executing lua script '{path}'"));
+
 
         let mlua::Value::Table(properties) = properties
         else {
@@ -219,8 +228,11 @@ impl ScriptManager {
 
         let name = name;
 
-        if let Some(name) = self.path_to_script.get(&name) {
-            let name_scr = self.scripts.get(*name).unwrap();
+        let mut engine = engine.get_mut();
+        let sm = &mut engine.script_manager;
+
+        if let Some(name) = sm.path_to_script.get(&name) {
+            let name_scr = sm.scripts.get(*name).unwrap();
             let cond = std::fs::canonicalize(name_scr.path())
                 .map(|x| x == canon)
                 .unwrap_or_else(|_| name_scr.path == canon.to_string_lossy());
@@ -254,16 +266,16 @@ impl ScriptManager {
         let funcs = ScriptFunctions { ready, update, texture, draw };
         let script = Script { path: path.to_string().leak(), name: String::new(), fields_ids: HashMap::new(), fields_vec: KVec::new(), functions: funcs };
 
-        let id = self.scripts.push(script);
-        if let Some(binded) = self.path_to_script.get(&name) {
-            let name_scr = self.scripts.get(*binded).unwrap();
+        let id = sm.scripts.push(script);
+        if let Some(binded) = sm.path_to_script.get(&name) {
+            let name_scr = sm.scripts.get(*binded).unwrap();
 
             error!("the name '{:?}' is already binded to '{}'", name, name_scr.path);
         } else {
-            self.path_to_script.insert(name.clone(), id);
+            sm.path_to_script.insert(name.clone(), id);
         }
 
-        self.path_to_script.insert(path.to_string(), id);
+        sm.path_to_script.insert(path.to_string(), id);
 
         let fields = match fields {
             Some(v) => {
@@ -281,7 +293,7 @@ impl ScriptManager {
                     };
                     trace!("reading field '{}'", key.to_string_lossy());
 
-                    let field = Field::from_value(&Engine::get().lua, key.to_string_lossy(), value);
+                    let field = Field::from_value(&Engine::lua(), key.to_string_lossy(), value);
                     hashmap.insert(key.to_string_lossy(), kvec.push(field));
                 }
 
@@ -290,7 +302,7 @@ impl ScriptManager {
             None => (HashMap::new(), KVec::new()),
         };
 
-        let script = self.scripts.get_mut(id).unwrap();
+        let script = sm.scripts.get_mut(id).unwrap();
         script.fields_ids = fields.0;
         script.fields_vec = fields.1;
         script.name = name;

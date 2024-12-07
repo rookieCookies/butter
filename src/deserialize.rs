@@ -3,12 +3,12 @@ use std::{cell::RefCell, str::FromStr};
 use sti::keyed::{KVec, Key};
 use tracing::{error, info, trace, warn, Level};
 
-use crate::{engine::Engine, lua::node::NodeUserData, math::vector::Vec3, scene_manager::{node::{Component, ComponentId, Components, Node, NodeProperties}, scene_tree::{NodeId, SceneTree}}, script_manager::fields::{FieldType, FieldValue}};
+use crate::{asset_manager::AssetManager, engine::{Engine, EngineHandle}, lua::node::NodeUserData, math::vector::Vec3, scene_manager::{node::{Component, ComponentId, Components, Node, NodeProperties}, scene_tree::{NodeId, SceneTree}}, script_manager::{fields::{FieldType, FieldValue}, ScriptManager}};
 
 impl SceneTree {
     /// Loads a file as a 'SceneTree'
     /// Returns an empty 'SceneTree' if an error occurs
-    pub fn from_file<A>(path: A) -> SceneTree
+    pub fn from_file<A>(engine: &mut EngineHandle, path: A) -> SceneTree
     where A: AsRef<std::path::Path> {
         let path = path.as_ref();
         let path_str = path.to_string_lossy();
@@ -34,13 +34,13 @@ impl SceneTree {
             }
         };
 
-        SceneTree::from_table(&toml_table)
+        SceneTree::from_table(engine, &toml_table)
     }
 
 
     /// Loads a file as a 'SceneTree'
     /// Returns an empty 'SceneTree' if an error occurs
-    pub fn from_table(table: &toml::Table) -> SceneTree {
+    pub fn from_table(engine: &mut EngineHandle, table: &toml::Table) -> SceneTree {
         let mut scene = SceneTree::new();
         let inner_scene = scene.map.inner_unck_mut();
         
@@ -67,7 +67,7 @@ impl SceneTree {
 
             largest_node_index = largest_node_index.max(node_index);
 
-            let node = Node::from_entry(NodeId::from_idx(node_index), value);
+            let node = Node::from_entry(engine, NodeId::from_idx(node_index), value);
             let Some(node) = node
             else {
                 has_errored = true;
@@ -91,8 +91,7 @@ impl SceneTree {
             }
 
 
-            let entry = RefCell::new(node);
-            let entry = genmap::Slot::Occupied { itm: entry };
+            let entry = genmap::Slot::Occupied { itm: node };
             let entry = (0, entry);
 
             if inner_scene.len() > node_index as usize {
@@ -133,13 +132,13 @@ impl SceneTree {
             let genmap::Slot::Occupied { itm } = &inner_scene[index-1].1
             else { unreachable!() };
 
-            let Some(parent) = itm.borrow().parent
+            let Some(parent) = itm.parent
             else { continue };
 
-            let genmap::Slot::Occupied { itm } = &inner_scene[parent.idx()].1
+            let genmap::Slot::Occupied { itm } = &mut inner_scene[parent.idx()].1
             else { unreachable!() };
 
-            itm.borrow_mut().children.push(NodeId::from_idx(index as u32 - 1));
+            itm.children.push(NodeId::from_idx(index as u32 - 1));
         }
 
         scene
@@ -148,14 +147,14 @@ impl SceneTree {
 
 
 impl Node {
-    pub fn from_entry(index: NodeId, value: &toml::Value) -> Option<Node> {
+    pub fn from_entry(engine: &mut EngineHandle, index: NodeId, value: &toml::Value) -> Option<Node> {
         let Some(table) = value.as_table()
         else {
             error!("can't parse the value as a table");
             return None;
         };
 
-        let properties = NodeProperties::from_table(&table);
+        let properties = NodeProperties::from_table(engine, &table);
 
         let parent = 'me: {
             let Some(parent) = table.get("parent")
@@ -193,16 +192,17 @@ impl Node {
                 break 'me None;
             };
 
-            Components::from_table(index, components)
+            Components::from_table(engine, index, components)
         };
 
 
         Some(Node {
+            node_id: index,
             properties: properties?,
             children: vec![], // this field must be filled later on
             parent: parent.map(NodeId::from_idx),
             components: components?,
-            userdata: Engine::get().lua.create_userdata(index).unwrap(),
+            userdata: None,
         })
     }
 }
@@ -210,9 +210,7 @@ impl Node {
 
 
 impl Components {
-    pub fn from_table(node: NodeId, table: &toml::Table) -> Option<Components> {
-        let mut script_manager = Engine::get().script_manager.borrow_mut();
-
+    pub fn from_table(engine: &mut EngineHandle, node: NodeId, table: &toml::Table) -> Option<Components> {
         let mut vec = KVec::with_cap(table.len());
         let mut has_errored = false;
 
@@ -230,7 +228,8 @@ impl Components {
 
             let fields_table = fields_table.clone();
 
-            let script_id = script_manager.load_script(&name);
+            let script_id = ScriptManager::load_script(engine, &name);
+            let script_manager = &engine.get().script_manager;
             let script = script_manager.script(script_id);
             let mut fields = KVec::with_cap(script.fields_vec.len());
 
@@ -270,12 +269,11 @@ impl Components {
             }
 
             let comp_id = ComponentId::from_usize(index).unwrap();
-            let userdata = NodeUserData(node, comp_id);
 
             vec.push(Component::new(
+                    comp_id,
                     script_id,
                     fields,
-                    Engine::get().lua.create_userdata(userdata).unwrap(),
             ));
         }
 
@@ -291,7 +289,7 @@ impl Components {
 impl FieldValue {
     pub fn from_toml(value: &toml::Value, suggestion: &FieldType) -> Option<Self> {
         Some(match value {
-            toml::Value::String(v) => Self::String(Engine::get().lua.create_string(v).unwrap()),
+            toml::Value::String(v) => Self::String(Engine::lua().create_string(v).unwrap()),
             toml::Value::Integer(v) => Self::Integer(*v as i32),
             toml::Value::Float(v) => Self::Float(*v),
             toml::Value::Boolean(v) => Self::Bool(*v),

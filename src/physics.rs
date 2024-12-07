@@ -61,7 +61,7 @@ impl PhysicsServer {
 
     pub fn create_kinematic_rigidbody(&mut self, lua: &Lua, owner: NodeId) -> (RigidBodyId, AnyUserData) {
         info!("creating a kinematic rigid body");
-        let id = RigidBodyId(self.rigid_body_set.insert(RigidBodyBuilder::kinematic_velocity_based().lock_rotations().build()));
+        let id = RigidBodyId(self.rigid_body_set.insert(RigidBodyBuilder::kinematic_velocity_based().build()));
         let userdata = lua.create_userdata(id).unwrap();
         self.rigidbody_userdata.insert(id, userdata.clone());
         self.node_to_rigidbody.insert(owner, id);
@@ -71,7 +71,7 @@ impl PhysicsServer {
 
     pub fn create_dynamic_rigidbody(&mut self, lua: &Lua, owner: NodeId) -> (RigidBodyId, AnyUserData) {
         info!("creating a dynamic rigid body");
-        let id = RigidBodyId(self.rigid_body_set.insert(RigidBodyBuilder::dynamic().lock_rotations().build()));
+        let id = RigidBodyId(self.rigid_body_set.insert(RigidBodyBuilder::dynamic().build()));
         let userdata = lua.create_userdata(id).unwrap();
         self.rigidbody_userdata.insert(id, userdata.clone());
         self.node_to_rigidbody.insert(owner, id);
@@ -91,6 +91,10 @@ impl PhysicsServer {
     pub fn attach_collider_to_rigidbody(&mut self, cl: ColliderId, rb: RigidBodyId) {
         info!("attaching {rb:?} to {cl:?}");
         self.collider_set.set_parent(cl.0, Some(rb.0), &mut self.rigid_body_set);
+    }
+
+    pub fn delete_collider(&mut self, collider: ColliderId) {
+        self.collider_set.remove(collider.0, &mut self.island_manager, &mut self.rigid_body_set, true);
     }
 
 
@@ -114,8 +118,8 @@ impl PhysicsServer {
     }
 
 
-    pub fn tick(&mut self, time: f32, scene: &SceneTree, timers: &Timers) -> Vec<(mlua::Function, NodeUserData, NodeUserData)> {
-        let _timer = Timer::new(&timers.physics_engine_time);
+    pub fn tick(&mut self, time: f32, scene: &mut SceneTree, timers: &mut Timers) -> Vec<(mlua::Function, NodeUserData, NodeUserData)> {
+        let timer = Instant::now();
 
         self.integration_params.dt = time;
 
@@ -124,7 +128,8 @@ impl PhysicsServer {
         };
 
         {
-            let _timer = Timer::new(&timers.physics_engine_physics_time);
+            let timer = Instant::now();
+
             self.physics_pipeline.step(
                 &self.gravity,
                 &self.integration_params,
@@ -140,12 +145,15 @@ impl PhysicsServer {
                 &(),
                 &event_handler,
             );
+
+            timers.physics_engine_physics_time = timer.elapsed();
         }
 
 
         let mut vec = vec![];
         {
-            let _timer = Timer::new(&timers.physics_engine_event_time);
+            let timer = Instant::now();
+
             // @PERFORMANCE: might wanna cache this vec
             // note: bro is that really the only problem here
             for (c1, c2) in event_handler.calls.lock().unwrap().iter() {
@@ -159,24 +167,33 @@ impl PhysicsServer {
                     vec.push((e.clone(), c2d.node.clone(), c1d.node.clone()));
                 }
             }
+
+            timers.physics_engine_event_time = timer.elapsed();
         }
 
 
         {
-            let _timer = Timer::new(&timers.physics_engine_conv_time);
-            for (node, rb) in self.node_to_rigidbody.iter() {
-                let node = scene.get(*node);
+            let timer = Instant::now();
+
+            for (node_id, rb) in self.node_to_rigidbody.iter() {
                 let rb = self.rigid_body_set.get(rb.0).unwrap();
-                if rb.body_type().is_fixed() { continue }
+                //if rb.body_type().is_fixed() { continue }
 
                 let pos = rb.position();
                 let pos = Vec2::new(pos.translation.x, pos.translation.y);
+                let rot = rb.rotation().angle();
 
-                node.borrow_mut().set_global_position(&scene, pos);
+                scene.set_global_position(*node_id, pos);
+                scene.set_global_rotation(*node_id, rot);
             }
+
+            timers.physics_engine_conv_time = timer.elapsed();
         }
+
+        timers.physics_engine_time = timer.elapsed();
         vec
     }
+
 }
 
 

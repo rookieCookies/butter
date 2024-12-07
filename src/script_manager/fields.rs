@@ -148,7 +148,7 @@ impl FieldValue {
             FieldType::Script(_) => Self::Script(None),
             FieldType::Any => Self::Any(Value::Nil),
             FieldType::Bool => Self::Bool(false),
-            FieldType::String => Self::String(Engine::get().lua.create_string("").unwrap()),
+            FieldType::String => Self::String(Engine::lua().create_string("").unwrap()),
         }
     }
 }

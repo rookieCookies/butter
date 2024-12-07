@@ -1,0 +1,23 @@
+[package]
+name = "butter"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+toml = "0.8.19"
+serde = { version = "1.0.214", features = ["derive"] }
+sokol = { path = "./vendor/sokol-rust" }
+tracing = "*"
+tracing-subscriber = "*"
+sti = { path = "./vendor/sti" }
+mlua-sys = { version="*", features = ["luau", "vendored"] }
+mlua = { version="*", features = ["luau", "vendored"] }
+genmap = { path = "./vendor/genmap" }
+image = "*"
+rapier2d = { version = "*", features = ["parallel", "simd-nightly"] }
+rand = "*"
+
+derive-macros = { path = "./derive-macros" }
+
+[dev-dependencies]
+cgmath = "*"

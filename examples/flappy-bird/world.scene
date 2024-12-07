@@ -1,0 +1,71 @@
+[0]
+rotation = 0.0
+modulate.w = 1.0
+modulate.x = 1.0
+modulate.y = 1.0
+modulate.z = 1.0
+position.x = 0.0
+position.y = 0.0
+position.z = 0.0
+scale.x = 1.0
+scale.y = 1.0
+components = { "World" = {} }
+
+[1]
+parent = 0
+rotation = 0.0
+texture = "image:character/midflap.png"
+modulate.w = 1.0
+modulate.x = 1.0
+modulate.y = 1.0
+modulate.z = 1.0
+position.x = 0.0
+position.y = 0.0
+position.z = 0.0
+scale.x = 1.2
+scale.y = 1.0
+components = { "Player" = {}, "RigidBody" = { kind = "dynamic" }, "Collider" = { scale_mult = { x = 0.65, y = 0.7, z = 1.0 } } }
+
+[2]
+parent = 0
+rotation = 0.0
+modulate.w = 1.0
+modulate.x = 1.0
+modulate.y = 1.0
+modulate.z = 1.0
+position.x = 5.0
+position.y = 0.0
+position.z = 0.0
+scale.x = 1.0
+scale.y = 1.0
+components = { "Pipe" = {} }
+
+[3]
+parent = 2
+rotation = 0.0
+modulate.w = 1.0
+texture = "image:pipe/pipe.png"
+modulate.x = 1.0
+modulate.y = 1.0
+modulate.z = 1.0
+position.x = 0.0
+position.y = -15.0
+position.z = 0.0
+scale.x = 2.0
+scale.y = 12.5
+components = { "RigidBody" = { kind = "kinematic" }, "Collider" = { scale_mult = { x = 0.8, y = 0.95, z = 1.0 } } }
+
+[4]
+parent = 2
+rotation = 3.14159
+modulate.w = 1.0
+texture = "image:pipe/pipe.png"
+modulate.x = 1.0
+modulate.y = 1.0
+modulate.z = 1.0
+position.x = 0.0
+position.y = 15.0
+position.z = 0.0
+scale.x = 2.0
+scale.y = 12.5
+components = { "RigidBody" = { kind = "kinematic" }, "Collider" = { scale_mult = { x = 0.8, y = 0.95, z = 1.0 } } }

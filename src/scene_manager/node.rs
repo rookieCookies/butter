@@ -2,7 +2,7 @@ use mlua::AnyUserData;
 use sti::{define_key, keyed::{KIter, KIterMut, KVec}};
 use tracing::error;
 
-use crate::{asset_manager::{texture::TextureLoadType, AssetManager, TextureId}, engine::Engine, math::vector::{Colour, Vec2, Vec4}, script_manager::{fields::{FieldId, FieldValue}, ScriptId}};
+use crate::{asset_manager::{texture::TextureLoadType, AssetManager, TextureId}, engine::{Engine, EngineHandle}, lua::node::NodeUserData, math::vector::{Colour, Vec2, Vec4}, script_manager::{fields::{FieldId, FieldValue}, ScriptId, ScriptManager}};
 
 use super::scene_tree::{NodeId, SceneTree};
 
@@ -10,11 +10,12 @@ define_key!(u32, pub ComponentId);
 
 #[derive(Debug, Clone)]
 pub struct Node {
+    pub node_id: NodeId,
     pub properties: NodeProperties,
     pub children: Vec<NodeId>,
     pub parent: Option<NodeId>,
     pub components: Components,
-    pub userdata: AnyUserData,
+    pub userdata: Option<AnyUserData>,
 }
 
 
@@ -36,10 +37,11 @@ pub struct Components {
 
 #[derive(Debug, Clone)]
 pub struct Component {
+    pub comp_id: ComponentId,
     pub script: ScriptId,
     pub fields: KVec<FieldId, FieldValue>,
     pub is_ready: bool,
-    pub userdata: AnyUserData,
+    pub userdata: Option<AnyUserData>,
 }
 
 
@@ -66,7 +68,7 @@ impl Node {
         let mut pos = self.properties.position;
 
         while let Some(parent) = target_parent {
-            let this = nodes.get(parent).borrow();
+            let this = nodes.get(parent);
 
             pos.x *= this.properties.scale.x;
             pos.y *= this.properties.scale.y;
@@ -85,7 +87,7 @@ impl Node {
         let mut rot = self.properties.rotation;
 
         while let Some(parent) = target_parent {
-            let this = nodes.get(parent).borrow();
+            let this = nodes.get(parent);
             rot += this.properties.rotation;
             target_parent = this.parent;
         }
@@ -94,30 +96,12 @@ impl Node {
     }
 
 
-    pub fn set_global_position(&mut self, nodes: &SceneTree, mut pos: Vec2) {
-        let mut target_parent = self.parent;
-
-        while let Some(parent) = target_parent {
-            let this = nodes.get(parent).borrow();
-
-            pos.x /= this.properties.scale.x;
-            pos.y /= this.properties.scale.y;
-            pos.x -= this.properties.position.x;
-            pos.y -= this.properties.position.y;
-
-            target_parent = this.parent;
-        }
-
-        self.properties.position = pos;
-    }
-
-
     pub fn global_scale(&self, nodes: &SceneTree) -> Vec2 {
         let mut target_parent = self.parent;
         let mut scale = self.properties.scale;
 
         while let Some(parent) = target_parent {
-            let this = nodes.get(parent).borrow();
+            let this = nodes.get(parent);
 
             scale.x *= this.properties.scale.x;
             scale.y *= this.properties.scale.y;
@@ -126,6 +110,27 @@ impl Node {
         }
 
         scale
+    }
+
+
+    pub fn userdata(&mut self) -> AnyUserData {
+        if let Some(userdata) = &self.userdata {
+            return userdata.clone();
+        }
+
+        self.userdata = Some(Engine::lua().create_userdata(self.node_id).unwrap());
+        self.userdata.as_ref().unwrap().clone()
+    }
+
+
+    pub fn userdata_of(&mut self, comp: ComponentId) -> AnyUserData {
+        let comp = self.components.get_mut(comp);
+        if let Some(userdata) = &comp.userdata {
+            return userdata.clone();
+        }
+
+        comp.userdata = Some(Engine::lua().create_userdata(NodeUserData(self.node_id, comp.comp_id)).unwrap());
+        comp.userdata.as_ref().unwrap().clone()
     }
 }
 
@@ -151,6 +156,21 @@ impl Components {
     }
 
 
+    pub fn len(&self) -> usize {
+        self.vec.len()
+    }
+
+
+    pub fn get_index(&self, index: u32) -> &Component {
+        self.get(ComponentId(index))
+    }
+
+
+    pub fn get_mut_index(&mut self, index: u32) -> &mut Component {
+        self.get_mut(ComponentId(index))
+    }
+
+
     pub fn iter<'a>(&'a self) -> KIter<'a, ComponentId, Component> {
         self.vec.iter()
     }
@@ -163,12 +183,13 @@ impl Components {
 
 
 impl Component {
-    pub fn new(script: ScriptId, fields: KVec<FieldId, FieldValue>, userdata: AnyUserData) -> Self {
+    pub fn new(comp_id: ComponentId, script: ScriptId, fields: KVec<FieldId, FieldValue>) -> Self {
         Self {
             script,
             fields,
             is_ready: false,
-            userdata,
+            userdata: None,
+            comp_id,
         }
     }
 }
@@ -197,7 +218,8 @@ impl NodeProperties {
 
 
 impl NodeProperties {
-    pub fn from_table(table: &toml::Table) -> Option<Self> {
+    pub fn from_table(engine: &mut EngineHandle,
+                      table: &toml::Table) -> Option<Self> {
         let parent_name = "";
         fn read<T>(parent_name: &str, table: &toml::Table, property: &str,
                    f: impl FnOnce(&str, &toml::Table) -> Option<T>) -> Option<T> {
@@ -246,8 +268,8 @@ impl NodeProperties {
             };
 
             match ty {
-                "image" => Engine::get().asset_manager.borrow_mut().from_image(path),
-                "script" => Engine::get().asset_manager.borrow_mut().from_script(path),
+                "image" => engine.get_mut().asset_manager.from_image(path),
+                "script" => AssetManager::from_script(engine, path),
 
                 _ => {
                     error!("failed to read 'texture' in '{parent_name}', texture's type must be \

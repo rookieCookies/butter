@@ -2,7 +2,7 @@ use mlua::{AnyUserData, Error, FromLua, Value, Vector};
 use rapier2d::math::Rotation;
 use tracing::info;
 
-use crate::{engine::Engine, math::vector::Vec3, scene_manager::{node::ComponentId, scene_tree::NodeId}, script_manager::fields::{FieldType, FieldValue}};
+use crate::{engine::{Engine, EngineHandle}, math::vector::Vec3, scene_manager::{node::ComponentId, scene_tree::NodeId}, script_manager::fields::{FieldType, FieldValue}};
 
 #[derive(Debug, Clone, Copy)]
 pub struct NodeUserData(pub NodeId, pub ComponentId);
@@ -10,54 +10,53 @@ pub struct NodeUserData(pub NodeId, pub ComponentId);
 
 impl<'a> mlua::UserData for NodeUserData {
     fn add_fields<F: mlua::UserDataFields<Self>>(fields: &mut F) {
-        fields.add_field_method_get("position", |_, NodeUserData(this, _)| Ok(Engine::get().scene_manager.borrow().current.get(*this).borrow().properties.position));
-        fields.add_field_method_get("scale", |_, NodeUserData(this, _)| Ok(Engine::get().scene_manager.borrow().current.get(*this).borrow().properties.scale));
-        fields.add_field_method_get("rotation", |_, NodeUserData(this, _)| Ok(Engine::get().scene_manager.borrow().current.get(*this).borrow().properties.rotation));
+        fields.add_field_method_get("position", |_, NodeUserData(this, _)| Ok(EngineHandle::generate().get().scene_manager.current.get(*this).properties.position));
+        fields.add_field_method_get("scale", |_, NodeUserData(this, _)| Ok(EngineHandle::generate().get().scene_manager.current.get(*this).properties.scale));
+        fields.add_field_method_get("rotation", |_, NodeUserData(this, _)| Ok(EngineHandle::generate().get().scene_manager.current.get(*this).properties.rotation));
 
         fields.add_field_method_set("position", |_, NodeUserData(this, _), ass| {
-            let engine = Engine::get();
-            let mut scene = engine.scene_manager.borrow_mut();
-            let mut node = scene.current.get(*this).borrow_mut();
+            let mut engine = EngineHandle::generate();
+            let mut engine = engine.get_mut();
+            let scene = &mut engine.scene_manager;
+            let node = scene.current.get_mut(*this);
             node.properties.position = ass;
-            drop(node);
 
             let mut stack = vec![];
             stack.push(*this);
 
             while let Some(this) = stack.pop() {
-                let node = scene.current.get(this).borrow();
+                let node = scene.current.get(this);
                 stack.extend_from_slice(&node.children);
 
                 let Some(rb) = scene.physics.node_to_rigidbody.get(&this).copied()
                 else { continue };
 
                 let pos = node.global_position(&scene.current);
-                drop(node);
                 scene.physics.get_rb_mut(rb).set_position(rapier2d::na::Vector2::new(pos.x, pos.y).into(), true);
             }
 
             Ok(())
         });
 
-        fields.add_field_method_set("rotation", |_, NodeUserData(this, _), ass: f32| {
-            let engine = Engine::get();
-            let mut scene = engine.scene_manager.borrow_mut();
-            let mut node = scene.current.get(*this).borrow_mut();
+
+        fields.add_field_method_set("rotation", |_, NodeUserData(this, _), ass| {
+            let mut engine = EngineHandle::generate();
+            let mut engine = engine.get_mut();
+            let scene = &mut engine.scene_manager;
+            let node = scene.current.get_mut(*this);
             node.properties.rotation = ass;
-            drop(node);
 
             let mut stack = vec![];
             stack.push(*this);
 
             while let Some(this) = stack.pop() {
-                let node = scene.current.get(this).borrow();
+                let node = scene.current.get(this);
                 stack.extend_from_slice(&node.children);
 
                 let Some(rb) = scene.physics.node_to_rigidbody.get(&this).copied()
                 else { continue };
 
                 let rot = node.global_rotation(&scene.current);
-                drop(node);
                 scene.physics.get_rb_mut(rb).set_rotation(Rotation::from_angle(rot), true);
             }
 
@@ -65,46 +64,53 @@ impl<'a> mlua::UserData for NodeUserData {
         });
 
 
-        fields.add_field_method_set("scale", |_, NodeUserData(this, _), ass| Ok(Engine::get().scene_manager.borrow().current.get(*this).borrow_mut().properties.scale = ass));
-        fields.add_field_method_set("sprite", |_, NodeUserData(this, _), ass| Ok(Engine::get().scene_manager.borrow().current.get(*this).borrow_mut().properties.texture = ass));
+
+        fields.add_field_method_set("scale", |_, NodeUserData(this, _), ass| Ok(EngineHandle::generate().get_mut().scene_manager.current.get_mut(*this).properties.scale = ass));
+        fields.add_field_method_set("sprite", |_, NodeUserData(this, _), ass| Ok(EngineHandle::generate().get_mut().scene_manager.current.get_mut(*this).properties.texture = ass));
+        fields.add_field_method_set("modulate", |_, NodeUserData(this, _), ass| Ok(EngineHandle::generate().get_mut().scene_manager.current.get_mut(*this).properties.modulate = ass));
 
 
-        fields.add_field_method_get("global_position", |_, NodeUserData(this, _)| 
-            Ok(Engine::get().scene_manager.borrow().current.get(*this).borrow().global_position(&Engine::get().scene_manager.borrow().current))
-        );
+        fields.add_field_method_get("global_position", |_, NodeUserData(this, _)| {
+            let engine = EngineHandle::generate();
+            let engine = engine.get();
+            Ok(engine.scene_manager.current.get(*this).global_position(&engine.scene_manager.current))
+        });
 
 
-        fields.add_field_method_get("global_scale", |_, NodeUserData(this, _)| 
-            Ok(Engine::get().scene_manager.borrow().current.get(*this).borrow().global_scale(&Engine::get().scene_manager.borrow().current))
-        );
+        fields.add_field_method_get("global_scale", |_, NodeUserData(this, _)| {
+            let engine = EngineHandle::generate();
+            let engine = engine.get();
+            Ok(engine.scene_manager.current.get(*this).global_scale(&engine.scene_manager.current))
+        });
 
         fields.add_field_method_get("parent", |_, this| {
-            let scene = Engine::get().scene_manager.borrow();
-            let node = scene.current.get(this.0).borrow();
+            let mut engine = EngineHandle::generate();
+            let mut engine = engine.get_mut();
+            let node = engine.scene_manager.current.get(this.0);
             let parent = node.parent;
 
             Ok(match parent {
-                Some(v) => Value::UserData(scene.current.get(v).borrow().userdata.clone()),
+                Some(v) => Value::UserData(engine.scene_manager.current
+                                           .get_mut(v).userdata()),
                 None => Value::Nil,
             })
         });
 
         fields.add_field_method_set("parent", |_, this, parent: Option<NodeId>| {
-            let scene = Engine::get().scene_manager.borrow();
-            scene.current.set_parent(this.0, parent);
+            EngineHandle::generate().get_mut().scene_manager.current.set_parent(this.0, parent);
             Ok(())
         });
     }
 
     fn add_methods<M: mlua::UserDataMethods<Self>>(methods: &mut M) {
         methods.add_meta_method("__index", |_, NodeUserData(node, comp), name: String| {
-            let scene = Engine::get().scene_manager.borrow();
-            let script_manager = Engine::get().script_manager.borrow();
+            let engine = EngineHandle::generate();
+            let engine = engine.get();
 
-            let node = scene.current.get(*node).borrow();
+            let node = engine.scene_manager.current.get(*node);
             let comp = node.components.get(*comp);
             
-            let script = script_manager.script(comp.script);
+            let script = engine.script_manager.script(comp.script);
 
             let Some(field) = script.fields_ids.get(&name)
             else { return Err(Error::RuntimeError(format!("field '{}' doesn't exist", name))) };
@@ -127,19 +133,17 @@ impl<'a> mlua::UserData for NodeUserData {
         });
 
         methods.add_meta_method("__newindex", |lua, NodeUserData(node, comp), (name, value): (String, mlua::Value)| {
-            let (field_id, field) = {
-                let scene = Engine::get().scene_manager.borrow_mut();
-                let mut node = scene.current.get(*node).borrow_mut();
+            let (field_id, field) = EngineHandle::generate().with(|engine| {
+                let node = engine.scene_manager.current.get_mut(*node);
                 let comp = node.components.get_mut(*comp);
                 
-                let script_manager = Engine::get().script_manager.borrow();
-                let script = script_manager.script(comp.script);
+                let script = engine.script_manager.script(comp.script);
 
                 let Some(field) = script.fields_ids.get(&name)
                 else { return Err(Error::RuntimeError(format!("field '{}' doesn't exist", name))) };
 
-                (*field, script.fields_vec[*field].ty)
-            };
+                Ok((*field, script.fields_vec[*field].ty))
+            })?;
 
             let field = match field {
                 FieldType::Float => FieldValue::Float(f64::from_lua(value, lua)?),
@@ -156,34 +160,51 @@ impl<'a> mlua::UserData for NodeUserData {
                 FieldType::Any => FieldValue::Any(value),
             };
 
-            {
-                let scene = Engine::get().scene_manager.borrow_mut();
-                let mut node = scene.current.get(*node).borrow_mut();
+            EngineHandle::generate().with(|engine| {
+                let node = engine.scene_manager.current.get_mut(*node);
                 let comp = node.components.get_mut(*comp);
 
                 comp.fields[field_id] = field;
-            }
+            });
 
             Ok(())
         });
 
         methods.add_method("get_component", |_, this, name: String| {
             let comp = 'b: {
-                let scene = Engine::get().scene_manager.borrow();
-                let script_manager = Engine::get().script_manager.borrow();
-                let mut node = scene.current.get(this.0).borrow_mut();
+                let mut engine = EngineHandle::generate();
+                let mut engine = engine.get_mut();
+                let engine = &mut *engine;
+                let node = engine.scene_manager.current.get_mut(this.0);
 
-                for c in node.components.iter_mut() {
-                    let script = c.1.script;
-                    let script = script_manager.script(script);
+                let mut comp_index = 0u32;
+                loop {
+                    comp_index += 1;
+                    let comp_index = comp_index - 1;
+                    
+                    if comp_index as usize >= node.components.len() {
+                        break
+                    }
+
+                    let comp_index = ComponentId::new_unck(comp_index);
+
+                    let comp = node.components.get_mut(comp_index);
+                    let script = comp.script;
+                    let script = engine.script_manager.script(script);
 
                     if script.name == name {
-                        let val = if !c.1.is_ready {
-                                info!("get_component: '{}' wasn't ready", script.name);
-                                c.1.is_ready = true;
+                        let val = match !comp.is_ready {
+                            true => {
+                                info!("get_component: '{name}' wasn't ready");
+                                comp.is_ready = true;
                                 Some((script.functions.clone(), script.path()))
-                            } else { None };
-                        break 'b (c.1.userdata.clone(), val)
+                            },
+
+
+                            false => None,
+                        };
+
+                        break 'b (node.userdata_of(comp_index), val)
                     }
                 }
 
@@ -198,12 +219,13 @@ impl<'a> mlua::UserData for NodeUserData {
         });
 
         methods.add_method("get_child", |_, this, idx: usize| {
-            let scene = Engine::get().scene_manager.borrow();
-            let node = scene.current.get(this.0).borrow();
+            let engine = EngineHandle::generate();
+            let engine = engine.get();
+            let node = engine.scene_manager.current.get(this.0);
 
             let target = node.children[idx];
-            let target = scene.current.get(target).borrow().userdata.clone();
-            Ok(target)
+            let target = &engine.scene_manager.current.get(target).userdata;
+            Ok(target.clone())
         });
     }
 
@@ -214,21 +236,39 @@ impl mlua::UserData for NodeId {
     fn add_methods<M: mlua::UserDataMethods<Self>>(methods: &mut M) {
         methods.add_method("get_component", |_, this, name: String| {
             let comp = 'b: {
-                let scene = Engine::get().scene_manager.borrow_mut();
-                let script_manager = Engine::get().script_manager.borrow();
-                let mut node = scene.current.get(*this).borrow_mut();
+                let mut engine = EngineHandle::generate();
+                let mut engine = engine.get_mut();
+                let engine = &mut *engine;
+                let node = engine.scene_manager.current.get_mut(*this);
 
-                for c in node.components.iter_mut() {
-                    let script = c.1.script;
-                    let script = script_manager.script(script);
+                let mut comp_index = 0u32;
+                loop {
+                    comp_index += 1;
+                    let comp_index = comp_index - 1;
+                    
+                    if comp_index as usize >= node.components.len() {
+                        break
+                    }
+
+                    let comp_index = ComponentId::new_unck(comp_index);
+
+                    let comp = node.components.get_mut(comp_index);
+                    let script = comp.script;
+                    let script = engine.script_manager.script(script);
 
                     if script.name == name {
-                        let val = if !c.1.is_ready {
-                                info!("get_component: '{}' wasn't ready", script.name);
-                                c.1.is_ready = true;
+                        let val = match !comp.is_ready {
+                            true => {
+                                info!("get_component: '{name}' wasn't ready");
+                                comp.is_ready = true;
                                 Some((script.functions.clone(), script.path()))
-                            } else { None };
-                        break 'b (c.1.userdata.clone(), val)
+                            },
+
+
+                            false => None,
+                        };
+
+                        break 'b (node.userdata_of(comp_index), val)
                     }
                 }
 
@@ -242,20 +282,25 @@ impl mlua::UserData for NodeId {
             Ok(Value::UserData(comp.0))
         });
 
+
     }
 }
 
 
 
 impl FromLua for NodeId {
-    fn from_lua(value: Value, _: &mlua::Lua) -> mlua::Result<Self> {
-        let value = value.as_userdata().map(|x| x.borrow::<Self>().ok()).flatten();
+    fn from_lua(og_value: Value, _: &mlua::Lua) -> mlua::Result<Self> {
+        let value = og_value.as_userdata();
         let Some(value) = value
         else {
-            return Err(Error::runtime(format!("expected a 'NodeId' found '{:?}'", value)));
+            return Err(Error::runtime(format!("expected a 'NodeId' found '{:?}'", og_value.type_name())));
         };
 
-        Ok(*value)
+        if let Ok(value) = value.borrow::<NodeUserData>() {
+            return Ok(value.0)
+        }
+
+        value.borrow::<Self>().map(|x| *x)
     }
 }
 

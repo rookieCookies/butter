@@ -1,7 +1,7 @@
 use sokol::gfx::{self as sg, Bindings, PassAction, Pipeline};
 use tracing::{trace, Level};
 
-use crate::{asset_manager::TextureId, engine::Engine, math::{matrix::{Matrix, Matrix4}, vector::{Vec2, Vec3, Vec4}}, Camera};
+use crate::{asset_manager::{AssetManager, TextureId}, engine::Engine, math::{matrix::{Matrix, Matrix4}, vector::{Vec2, Vec3, Vec4}}, Camera};
 
 #[derive(Debug)]
 pub struct Renderer {
@@ -150,7 +150,7 @@ impl<'me> FrameQuad<'me> {
     }
 
 
-    pub fn commit(self) -> Matrix4<f32> {
+    pub fn commit(self, asset_manager: &AssetManager) -> Matrix4<f32> {
         trace!("drawing a quad");
         trace!(" - position: {}", self.pos);
         trace!(" - scale   : {}", self.scale);
@@ -161,7 +161,7 @@ impl<'me> FrameQuad<'me> {
         let model = Matrix::pos_scale_rot(self.pos, self.scale, self.rot);
         let mvp = self.renderer.vp * model;
 
-        self.renderer.bind.images[0] = Engine::get().asset_manager.borrow().texture(self.texture).inner();
+        self.renderer.bind.images[0] = asset_manager.texture(self.texture).inner();
         sg::apply_bindings(&self.renderer.bind);
 
         sg::apply_uniforms(0, &sg::Range { ptr: ((&mvp) as *const Matrix4<f32>).cast(), size: 64 });

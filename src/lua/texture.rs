@@ -1,12 +1,12 @@
 use mlua::Value;
 
-use crate::engine::Engine;
+use crate::engine::{Engine, EngineHandle};
 
 pub struct LuaTexture;
 impl mlua::UserData for LuaTexture {
     fn add_methods<M: mlua::UserDataMethods<Self>>(methods: &mut M) {
         methods.add_function("from_rgbaf32", |_, path: String| {
-            Ok(Engine::get().asset_manager.borrow_mut().from_image(&path))
+            Ok(EngineHandle::generate().get_mut().asset_manager.from_image(&path))
         });
     }
 
