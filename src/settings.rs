@@ -22,12 +22,19 @@ pub struct EngineSettings {
 
 #[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct WindowSettings {
+    #[serde(default = "default_title")]
     pub title: String,
+    #[serde(default = "default_width")]
     pub width: usize,
+    #[serde(default = "default_height")]
     pub height: usize,
+    #[serde(default = "default_msaa_sample_count")]
     pub msaa_sample_count: usize,
+    #[serde(default)]
     pub high_dpi: bool,
+    #[serde(default)]
     pub fullscreen: bool,
+    #[serde(default)]
     pub allow_transparency: bool,
 }
 
@@ -35,7 +42,10 @@ pub struct WindowSettings {
 #[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct WorldSettings {
     pub entry_scene: String,
+    #[serde(default = "default_gravity")]
     pub gravity: Vec2,
+    #[serde(default = "default_physics_framerate")]
+    pub physics_framerate: usize,
 }
 
 
@@ -72,7 +82,41 @@ impl core::default::Default for ProjectSettings {
                 fullscreen: false,
                 allow_transparency: true,
             },
-            world: WorldSettings { entry_scene: String::new(), gravity: Vec2::new(0.0, -9.8) },
+            world: WorldSettings {
+                entry_scene: String::new(),
+                gravity: Vec2::new(0.0, -9.8),
+                physics_framerate: 240,
+            },
         }
     }
+}
+
+
+fn default_height() -> usize {
+    600
+}
+
+
+fn default_width() -> usize {
+    800
+}
+
+
+fn default_physics_framerate() -> usize {
+    240
+}
+
+
+fn default_title() -> String {
+    String::from("butter game")
+}
+
+
+fn default_gravity() -> Vec2 {
+    Vec2::new(0.0, -9.8)
+}
+
+
+fn default_msaa_sample_count() -> usize {
+    4
 }

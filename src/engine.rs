@@ -1,7 +1,7 @@
 use std::{cell::{Ref, RefCell, RefMut}, ptr::null, time::{Duration, Instant}};
 
 use sokol::{debugtext as sdtx, app as sapp, time as stime};
-use tracing::{error, info, trace, Instrument, Level};
+use tracing::{error, info, trace, Level};
 
 use crate::{asset_manager::AssetManager, event_manager::{EventManager, Keycode}, input_manager::InputManager, lua::{self}, math::vector::{Colour, Vec2, Vec3, Vec4}, renderer::Renderer, scene_manager::{node::{ComponentId, NodeProperties}, scene_template::TemplateScene, scene_tree::SceneTree, SceneManager}, script_manager::ScriptManager, settings::ProjectSettings, Camera};
 
@@ -73,7 +73,7 @@ impl Engine {
             asset_manager: AssetManager::new(),
             scene_manager: SceneManager::new(project_settings.world.gravity),
             renderer: Renderer::new(&project_settings),
-            camera: Camera::new(Vec3::new(0.0, 0.0, 0.0), Vec3::new(0.0, 1.0, 0.0), 25.0),
+            camera: Camera::new(Vec3::new(0.0, 0.0, 0.0), Vec3::new(0.0, 1.0, 0.0), 50.0),
 
             last_frame: 0,
             now: 0.0,
@@ -129,7 +129,9 @@ impl Engine {
         engine.with(|engine| {
             engine.asset_manager.init();
             engine.scene_manager.physics.init();
-            engine.scene_manager.physics.set_framerate(240);
+            let fps = Engine::project_settings()
+                .world.physics_framerate;
+            engine.scene_manager.physics.set_framerate(fps);
         });
 
         ScriptManager::load_current_dir(engine);

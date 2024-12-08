@@ -27,7 +27,7 @@ pub struct Vec3 {
 }
 
 
-#[derive(Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Default, Copy, PartialEq, Serialize, Deserialize)]
 #[repr(C)]
 pub struct Vec2 {
     pub x: f32,
