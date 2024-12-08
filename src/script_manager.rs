@@ -35,6 +35,7 @@ pub struct ScriptFunctions {
     update: Option<mlua::Function>,
     texture: Option<mlua::Function>,
     draw: Option<mlua::Function>,
+    on_free: Option<mlua::Function>,
 }
 
 
@@ -56,12 +57,7 @@ macro_rules! unwrap_lua {
 impl ScriptManager {
     pub fn new() -> Self {
         let mut scripts = KVec::new();
-        let functions = ScriptFunctions {
-            ready: None,
-            update: None,
-            texture: None,
-            draw: None,
-        };
+        let functions = ScriptFunctions::default();
 
         scripts.push(Script { path: "<default>", name: String::new(), fields_ids: HashMap::new(), fields_vec: KVec::new(), functions });
  
@@ -244,6 +240,7 @@ impl ScriptManager {
         let update = retrieve_func("update");
         let texture = retrieve_func("texture");
         let draw = retrieve_func("draw");
+        let on_free = retrieve_func("on_free");
         let fields = retrieve_table("fields");
 
         for entry in properties.pairs::<mlua::Value, mlua::Value>() {
@@ -262,7 +259,7 @@ impl ScriptManager {
         }
 
 
-        let funcs = ScriptFunctions { ready, update, texture, draw };
+        let funcs = ScriptFunctions { ready, update, texture, draw, on_free };
         let script = Script { path: path.to_string().leak(), name: String::new(), fields_ids: HashMap::new(), fields_vec: KVec::new(), functions: funcs };
 
         let id = sm.scripts.push(script);
@@ -345,6 +342,16 @@ impl ScriptFunctions {
 
         if let Err(e) = draw.call::<()>(user_data) {
             error!("on draw of '{}': \n{e}", path);
+        }
+    }
+
+
+    pub fn on_free(&self, path: &str, user_data: AnyUserData) {
+        let Some(draw) = &self.on_free
+        else { return };
+
+        if let Err(e) = draw.call::<()>(user_data) {
+            error!("on free of '{}': \n{e}", path);
         }
     }
 

@@ -2,7 +2,7 @@ use mlua::{AnyUserData, Error, FromLua, Value, Vector};
 use rapier2d::{math::Rotation, na::Isometry2};
 use tracing::info;
 
-use crate::{engine::Engine, math::vector::Vec3, scene_manager::{node::ComponentId, scene_tree::NodeId}, script_manager::fields::{FieldType, FieldValue}};
+use crate::{engine::Engine, math::vector::Vec3, scene_manager::{node::ComponentId, NodeId}, script_manager::fields::{FieldType, FieldValue}};
 
 #[derive(Debug, Clone, Copy)]
 pub struct NodeUserData(pub NodeId, pub ComponentId);
@@ -10,29 +10,29 @@ pub struct NodeUserData(pub NodeId, pub ComponentId);
 
 impl<'a> mlua::UserData for NodeUserData {
     fn add_fields<F: mlua::UserDataFields<Self>>(fields: &mut F) {
-        fields.add_field_method_get("position", |_, NodeUserData(this, _)| Ok(Engine::generate().get().scene_manager.current.get(*this).properties.position));
-        fields.add_field_method_get("scale", |_, NodeUserData(this, _)| Ok(Engine::generate().get().scene_manager.current.get(*this).properties.scale));
-        fields.add_field_method_get("rotation", |_, NodeUserData(this, _)| Ok(Engine::generate().get().scene_manager.current.get(*this).properties.rotation));
+        fields.add_field_method_get("position", |_, NodeUserData(this, _)| Ok(Engine::generate().get().scene_manager.tree.get(*this).properties.position));
+        fields.add_field_method_get("scale", |_, NodeUserData(this, _)| Ok(Engine::generate().get().scene_manager.tree.get(*this).properties.scale));
+        fields.add_field_method_get("rotation", |_, NodeUserData(this, _)| Ok(Engine::generate().get().scene_manager.tree.get(*this).properties.rotation));
 
         fields.add_field_method_set("position", |_, NodeUserData(this, _), ass| {
             let mut engine = Engine::generate();
             let mut engine = engine.get_mut();
             let scene = &mut engine.scene_manager;
-            let node = scene.current.get_mut(*this);
+            let node = scene.tree.get_mut(*this);
             node.properties.position = ass;
 
             let mut stack = vec![];
             stack.push(*this);
 
             while let Some(this) = stack.pop() {
-                let node = scene.current.get(this);
+                let node = scene.tree.get(this);
                 stack.extend_from_slice(&node.children);
 
                 let Some(rb) = scene.physics.node_to_rigidbody.get(&this).copied()
                 else { continue };
 
-                let pos = node.global_position(&scene.current);
-                let rot = node.global_rotation(&scene.current);
+                let pos = node.global_position(&scene.tree);
+                let rot = node.global_rotation(&scene.tree);
                 let iso = Isometry2::new(pos.into(), rot);
                 scene.physics.get_rb_mut(rb).set_position(iso, true);
             }
@@ -45,20 +45,20 @@ impl<'a> mlua::UserData for NodeUserData {
             let mut engine = Engine::generate();
             let mut engine = engine.get_mut();
             let scene = &mut engine.scene_manager;
-            let node = scene.current.get_mut(*this);
+            let node = scene.tree.get_mut(*this);
             node.properties.rotation = ass;
 
             let mut stack = vec![];
             stack.push(*this);
 
             while let Some(this) = stack.pop() {
-                let node = scene.current.get(this);
+                let node = scene.tree.get(this);
                 stack.extend_from_slice(&node.children);
 
                 let Some(rb) = scene.physics.node_to_rigidbody.get(&this).copied()
                 else { continue };
 
-                let rot = node.global_rotation(&scene.current);
+                let rot = node.global_rotation(&scene.tree);
                 scene.physics.get_rb_mut(rb).set_rotation(Rotation::from_angle(rot), true);
             }
 
@@ -67,39 +67,39 @@ impl<'a> mlua::UserData for NodeUserData {
 
 
 
-        fields.add_field_method_set("scale", |_, NodeUserData(this, _), ass| Ok(Engine::generate().get_mut().scene_manager.current.get_mut(*this).properties.scale = ass));
-        fields.add_field_method_set("sprite", |_, NodeUserData(this, _), ass| Ok(Engine::generate().get_mut().scene_manager.current.get_mut(*this).properties.texture = ass));
-        fields.add_field_method_set("modulate", |_, NodeUserData(this, _), ass| Ok(Engine::generate().get_mut().scene_manager.current.get_mut(*this).properties.modulate = ass));
+        fields.add_field_method_set("scale", |_, NodeUserData(this, _), ass| Ok(Engine::generate().get_mut().scene_manager.tree.get_mut(*this).properties.scale = ass));
+        fields.add_field_method_set("sprite", |_, NodeUserData(this, _), ass| Ok(Engine::generate().get_mut().scene_manager.tree.get_mut(*this).properties.texture = ass));
+        fields.add_field_method_set("modulate", |_, NodeUserData(this, _), ass| Ok(Engine::generate().get_mut().scene_manager.tree.get_mut(*this).properties.modulate = ass));
 
 
         fields.add_field_method_get("global_position", |_, NodeUserData(this, _)| {
             let engine = Engine::generate();
             let engine = engine.get();
-            Ok(engine.scene_manager.current.get(*this).global_position(&engine.scene_manager.current))
+            Ok(engine.scene_manager.tree.get(*this).global_position(&engine.scene_manager.tree))
         });
 
 
         fields.add_field_method_get("global_scale", |_, NodeUserData(this, _)| {
             let engine = Engine::generate();
             let engine = engine.get();
-            Ok(engine.scene_manager.current.get(*this).global_scale(&engine.scene_manager.current))
+            Ok(engine.scene_manager.tree.get(*this).global_scale(&engine.scene_manager.tree))
         });
 
         fields.add_field_method_get("parent", |_, this| {
             let mut engine = Engine::generate();
             let mut engine = engine.get_mut();
-            let node = engine.scene_manager.current.get(this.0);
+            let node = engine.scene_manager.tree.get(this.0);
             let parent = node.parent;
 
             Ok(match parent {
-                Some(v) => Value::UserData(engine.scene_manager.current
+                Some(v) => Value::UserData(engine.scene_manager.tree
                                            .get_mut(v).userdata()),
                 None => Value::Nil,
             })
         });
 
         fields.add_field_method_set("parent", |_, this, parent: Option<NodeId>| {
-            Engine::generate().get_mut().scene_manager.current.set_parent(this.0, parent);
+            Engine::generate().get_mut().scene_manager.tree.set_parent(this.0, parent);
             Ok(())
         });
     }
@@ -109,7 +109,7 @@ impl<'a> mlua::UserData for NodeUserData {
             let engine = Engine::generate();
             let engine = engine.get();
 
-            let node = engine.scene_manager.current.get(*node);
+            let node = engine.scene_manager.tree.get(*node);
             let comp = node.components.get(*comp);
             
             let script = engine.script_manager.script(comp.script);
@@ -136,7 +136,7 @@ impl<'a> mlua::UserData for NodeUserData {
 
         methods.add_meta_method("__newindex", |lua, NodeUserData(node, comp), (name, value): (String, mlua::Value)| {
             let (field_id, field) = Engine::generate().with(|engine| {
-                let node = engine.scene_manager.current.get_mut(*node);
+                let node = engine.scene_manager.tree.get_mut(*node);
                 let comp = node.components.get_mut(*comp);
                 
                 let script = engine.script_manager.script(comp.script);
@@ -163,7 +163,7 @@ impl<'a> mlua::UserData for NodeUserData {
             };
 
             Engine::generate().with(|engine| {
-                let node = engine.scene_manager.current.get_mut(*node);
+                let node = engine.scene_manager.tree.get_mut(*node);
                 let comp = node.components.get_mut(*comp);
 
                 comp.fields[field_id] = field;
@@ -177,7 +177,7 @@ impl<'a> mlua::UserData for NodeUserData {
                 let mut engine = Engine::generate();
                 let mut engine = engine.get_mut();
                 let engine = &mut *engine;
-                let node = engine.scene_manager.current.get_mut(this.0);
+                let node = engine.scene_manager.tree.get_mut(this.0);
 
                 let mut comp_index = 0u32;
                 loop {
@@ -223,10 +223,10 @@ impl<'a> mlua::UserData for NodeUserData {
         methods.add_method("get_child", |_, this, idx: usize| {
             let mut engine = Engine::generate();
             let mut engine = engine.get_mut();
-            let node = engine.scene_manager.current.get(this.0);
+            let node = engine.scene_manager.tree.get(this.0);
 
             let target = node.children[idx];
-            let target = &engine.scene_manager.current.get_mut(target).userdata();
+            let target = &engine.scene_manager.tree.get_mut(target).userdata();
             Ok(target.clone())
         });
     }
@@ -236,7 +236,7 @@ impl<'a> mlua::UserData for NodeUserData {
 
 impl mlua::UserData for NodeId {
     fn add_fields<F: mlua::UserDataFields<Self>>(fields: &mut F) {
-        fields.add_field_method_get("scale", |_, this| Ok(Engine::generate().get().scene_manager.current.get(*this).properties.scale));
+        fields.add_field_method_get("scale", |_, this| Ok(Engine::generate().get().scene_manager.tree.get(*this).properties.scale));
     }
 
 
@@ -246,7 +246,7 @@ impl mlua::UserData for NodeId {
                 let mut engine = Engine::generate();
                 let mut engine = engine.get_mut();
                 let engine = &mut *engine;
-                let node = engine.scene_manager.current.get_mut(*this);
+                let node = engine.scene_manager.tree.get_mut(*this);
 
                 let mut comp_index = 0u32;
                 loop {

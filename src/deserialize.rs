@@ -1,14 +1,14 @@
 use std::str::FromStr;
 
-use sti::keyed::{KVec, Key};
+use sti::keyed::KVec;
 use tracing::{error, info, trace, warn, Level};
 
-use crate::{engine::Engine, math::vector::Vec3, scene_manager::{node::{Component, ComponentId, Components, Node, NodeProperties}, scene_tree::{NodeId, SceneTree}}, script_manager::{fields::{FieldType, FieldValue}, ScriptManager}};
+use crate::{engine::Engine, math::vector::Vec3, scene_manager::{node::NodeProperties, scene_template::{TemplateComponent, TemplateComponents, TemplateNode, TemplateNodeId, TemplateScene}, NodeId}, script_manager::{fields::{FieldType, FieldValue}, ScriptManager}};
 
-impl SceneTree {
+impl TemplateScene {
     /// Loads a file as a 'SceneTree'
     /// Returns an empty 'SceneTree' if an error occurs
-    pub fn from_file<A>(engine: &mut Engine, path: A) -> SceneTree
+    pub fn from_file<A>(engine: &mut Engine, path: A) -> TemplateScene
     where A: AsRef<std::path::Path> {
         let path = path.as_ref();
         let path_str = path.to_string_lossy();
@@ -23,30 +23,30 @@ impl SceneTree {
         let Ok(scene_data) = std::fs::read_to_string(path)
         else {
             error!("unable to read");
-            return SceneTree::new();
+            return TemplateScene::new();
         };
 
         let toml_table = match toml::Table::from_str(&scene_data) {
             Ok(v) => v,
             Err(e) => {
                 error!("unable to parse the file as a toml table: {e}");
-                return SceneTree::new();
+                return TemplateScene::new();
             }
         };
 
-        SceneTree::from_table(engine, &toml_table)
+        TemplateScene::from_table(engine, &toml_table)
     }
 
 
     /// Loads a file as a 'SceneTree'
     /// Returns an empty 'SceneTree' if an error occurs
-    pub fn from_table(engine: &mut Engine, table: &toml::Table) -> SceneTree {
-        let mut scene = SceneTree::new();
-        let inner_scene = scene.map.inner_unck_mut();
+    pub fn from_table(engine: &mut Engine, table: &toml::Table) -> TemplateScene {
+        let mut scene = TemplateScene::new();
+        let inner_scene = scene.inner_mut();
         
         // saved scenes must be trimmed down to their bare minimums
         // this provides us an easy way to check out of bounds nodes
-        let expected_scene_size = table.len();
+        let expected_scene_size = table.len() as u32;
 
         let mut largest_node_index = 0;
         let mut has_errored = false; 
@@ -67,7 +67,7 @@ impl SceneTree {
 
             largest_node_index = largest_node_index.max(node_index);
 
-            let node = Node::from_entry(engine, NodeId::from_idx(node_index), value);
+            let node = TemplateNode::from_entry(engine, value);
             let Some(node) = node
             else {
                 has_errored = true;
@@ -76,14 +76,14 @@ impl SceneTree {
 
 
             if let Some(parent) = node.parent {
-                if parent.idx() >= expected_scene_size {
-                    error!("the parent '{}' is out of bounds", parent.idx());
+                if parent.inner() >= expected_scene_size {
+                    error!("the parent '{}' is out of bounds", parent.inner());
                     has_errored = true;
                     continue;
                 }
 
 
-                if parent.idx() as u32 == node_index {
+                if parent.inner() as u32 == node_index {
                     error!("a node can't be a parent of itself");
                     has_errored = true;
                     continue;
@@ -91,27 +91,24 @@ impl SceneTree {
             }
 
 
-            let entry = genmap::Slot::Occupied { itm: node };
-            let entry = (0, entry);
-
             if inner_scene.len() > node_index as usize {
-                inner_scene.insert(node_index as usize, entry);
+                inner_scene.insert(node_index as usize, node);
             } else {
-                inner_scene.push(entry);
+                inner_scene.push(node);
             }
         }
 
 
         // better to return nothing than to return corrupt
         if has_errored {
-            return SceneTree::new();
+            return TemplateScene::new();
         }
 
 
         // not even a root.
         if table.len() == 0 {
             warn!("no root node provided (index = 0)");
-            return SceneTree::new();
+            return TemplateScene::new();
         }
 
 
@@ -120,34 +117,17 @@ impl SceneTree {
             error!("the scene file must be compacted down. the largest index \
                    is '{}' while the item count is '{}'",
                    largest_node_index + 1, scene.len());
-            return SceneTree::new();
+            return TemplateScene::new();
         }
 
-
-        // initialize the 'Node.children' vec
-        let mut index = 0;
-        while index < inner_scene.len() {
-            index += 1;
-
-            let genmap::Slot::Occupied { itm } = &inner_scene[index-1].1
-            else { unreachable!() };
-
-            let Some(parent) = itm.parent
-            else { continue };
-
-            let genmap::Slot::Occupied { itm } = &mut inner_scene[parent.idx()].1
-            else { unreachable!() };
-
-            itm.children.push(NodeId::from_idx(index as u32 - 1));
-        }
 
         scene
     }
 }
 
 
-impl Node {
-    pub fn from_entry(engine: &mut Engine, index: NodeId, value: &toml::Value) -> Option<Node> {
+impl TemplateNode {
+    pub fn from_entry(engine: &mut Engine, value: &toml::Value) -> Option<Self> {
         let Some(table) = value.as_table()
         else {
             error!("can't parse the value as a table");
@@ -183,7 +163,7 @@ impl Node {
         let components = 'me: {
             let Some(components) = table.get("components")
             else {
-                break 'me Some(Components::empty());
+                break 'me Some(TemplateComponents::new(KVec::new()));
             };
 
             let Some(components) = components.as_table()
@@ -192,29 +172,26 @@ impl Node {
                 break 'me None;
             };
 
-            Components::from_table(engine, components)
+            TemplateComponents::from_table(engine, components)
         };
 
 
-        Some(Node {
-            node_id: index,
+        Some(TemplateNode {
             properties: properties?,
-            children: vec![], // this field must be filled later on
-            parent: parent.map(NodeId::from_idx),
+            parent: parent.map(|x| TemplateNodeId::new_unck(x)),
             components: components?,
-            userdata: None,
         })
     }
 }
 
 
 
-impl Components {
-    pub fn from_table(engine: &mut Engine, table: &toml::Table) -> Option<Components> {
+impl TemplateComponents {
+    pub fn from_table(engine: &mut Engine, table: &toml::Table) -> Option<Self> {
         let mut vec = KVec::with_cap(table.len());
         let mut has_errored = false;
 
-        for (index, (name, fields)) in table.iter().enumerate() {
+        for (name, fields) in table.iter() {
             let span = tracing::span!(Level::ERROR, "", component = name);
             let _handle = span.entered();
 
@@ -268,10 +245,7 @@ impl Components {
                 fields.push(field_value);
             }
 
-            let comp_id = ComponentId::from_usize(index).unwrap();
-
-            vec.push(Component::new(
-                    comp_id,
+            vec.push(TemplateComponent::new(
                     script_id,
                     fields,
             ));
@@ -280,7 +254,7 @@ impl Components {
 
         if has_errored { return None }
 
-        Some(Components::new(vec))
+        Some(TemplateComponents::new(vec))
     }
 }
 

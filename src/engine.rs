@@ -1,9 +1,9 @@
 use std::{cell::{Ref, RefCell, RefMut}, ptr::null, time::{Duration, Instant}};
 
 use sokol::{debugtext as sdtx, app as sapp, time as stime};
-use tracing::{error, info, trace, Level};
+use tracing::{error, info, trace, Instrument, Level};
 
-use crate::{asset_manager::AssetManager, event_manager::{EventManager, Keycode}, input_manager::InputManager, lua::{self}, math::vector::{Colour, Vec2, Vec3, Vec4}, renderer::Renderer, scene_manager::{node::{ComponentId, NodeProperties}, scene_tree::SceneTree, SceneManager}, script_manager::ScriptManager, settings::ProjectSettings, Camera};
+use crate::{asset_manager::AssetManager, event_manager::{EventManager, Keycode}, input_manager::InputManager, lua::{self}, math::vector::{Colour, Vec2, Vec3, Vec4}, renderer::Renderer, scene_manager::{node::{ComponentId, NodeProperties}, scene_template::TemplateScene, scene_tree::SceneTree, SceneManager}, script_manager::ScriptManager, settings::ProjectSettings, Camera};
 
 
 static mut ENGINE : *const EngineStatic = null();
@@ -109,47 +109,11 @@ impl Engine {
 
 
     pub fn change_scene(engine: &mut Engine, scene: &str) {
-        let nodes = engine.with(|engine| {
-            engine.scene_manager.load(scene);
-            engine.scene_manager.current.iter_vec()
-        });
+        let template_scene = TemplateScene::from_file(engine, scene);
+        let Some(node) = template_scene.instantiate(engine)
+        else { return };
 
-        info!("ready all nodes");
-        for node in nodes {
-            let mut comp_index = 0u32;
-            loop {
-                comp_index += 1;
-                let comp_index = comp_index - 1;
-
-                let (functions, userdata, path) = {
-                    let mut engine = engine.get_mut();
-                    let node = engine.scene_manager.current.get_mut(node);
-                    if comp_index >= node.components.len() as u32 {
-                        break;
-                    }
-
-                    let component = node.components.get_mut_index(comp_index);
-                    if component.is_ready {
-                        continue;
-                    }
-
-                    component.is_ready = true;
-
-                    let script = component.script;
-                    let userdata = node.userdata_of(ComponentId::new_unck(comp_index));
-                    let script = engine.script_manager.script(script);
-
-                    (
-                        script.functions.clone(),
-                        userdata,
-                        script.path(),
-                    )
-                };
-
-
-                functions.ready(path, &userdata);
-            }
-        }
+        SceneTree::set_root(engine, node);
     }
 
 
@@ -165,21 +129,10 @@ impl Engine {
         engine.with(|engine| {
             engine.asset_manager.init();
             engine.scene_manager.physics.init();
+            engine.scene_manager.physics.set_framerate(240);
         });
 
         ScriptManager::load_current_dir(engine);
-
-        let scene_tree = {
-            let entry_scene = &Engine::project_settings().world.entry_scene;
-            let scene_tree = SceneTree::from_file(engine, entry_scene);
-            scene_tree
-        };
-
-        engine.with(|engine| {
-            engine.scene_manager.register(Engine::project_settings().world.entry_scene.clone(), scene_tree);
-            engine.last_frame = stime::now();
-        });
-
         Engine::change_scene(engine, &Engine::project_settings().world.entry_scene);
     }
 
@@ -211,17 +164,17 @@ impl Engine {
             engine.timers.io_event_time = timer.elapsed();
         });
 
+        let nodes = engine.with(|engine| {
+            engine.scene_manager.tree.iter_vec_root()
+        });
 
         {
             trace!("update all nodes");
 
             let timer = Instant::now();
-
-            let nodes = engine.with(|engine| {
-                engine.scene_manager.current.iter_vec()
-            });
-
-            for node in nodes {
+            
+            for node in nodes.iter().copied() {
+                trace!("updating {:?}", node);
                 let mut comp_index = 0u32;
                 loop {
                     comp_index += 1;
@@ -229,7 +182,7 @@ impl Engine {
 
                     let (functions, userdata, path) = {
                         let mut engine = engine.get_mut();
-                        let node = engine.scene_manager.current.get_mut(node);
+                        let node = engine.scene_manager.tree.get_mut(node);
                         if comp_index >= node.components.len() as u32 {
                             break;
                         }
@@ -251,16 +204,16 @@ impl Engine {
 
                     functions.update(path, userdata);
                 }
-            }
 
+            }
+            trace!("updated");
             engine.with(|engine|
                          engine.timers.node_update_time = timer.elapsed());
         }
         
 
         let events = engine.with(|engine| {
-            engine.scene_manager.physics.set_framerate(240);
-            engine.scene_manager.physics.tick(&mut engine.scene_manager.current,
+            engine.scene_manager.physics.tick(&mut engine.scene_manager.tree,
                                               &mut engine.timers)
         });
         {
@@ -274,6 +227,22 @@ impl Engine {
             engine.with(|engine|
                          engine.timers.node_event_time = timer.elapsed());
         }
+
+
+        {
+            engine.with(|engine| {
+                trace!("actually freeing nodes that were queue freed");
+                for handle in nodes.iter().copied() {
+                    let node = engine.scene_manager.tree.map.get(handle.0).unwrap();
+                    if node.queued_free {
+                        engine.scene_manager.tree.map.remove(handle.0).unwrap();
+                    }
+                }
+                trace!("finished actually freeing nodes that were queue freed");
+            });
+            drop(nodes);
+        }
+
 
 
         engine.with(|engine| {
@@ -320,7 +289,7 @@ impl Engine {
             let mut property_stack = vec![(1, NodeProperties::identity())];
 
             engine.with(|engine|
-                if let Some(root) = engine.scene_manager.current.root() {
+                if let Some(root) = engine.scene_manager.tree.root() {
                     stack.push(root)
                 }
             );
@@ -333,7 +302,7 @@ impl Engine {
                     let mut engine = engine.get_mut();
                     let engine = &mut *engine;
 
-                    let node = engine.scene_manager.current.get(node);
+                    let node = engine.scene_manager.tree.get(node);
                     let parent_properties = {
                         let props = property_stack.last_mut().unwrap();
                         props.0 -= 1;
@@ -383,7 +352,7 @@ impl Engine {
                 loop {
                     let (functions, userdata, path) = {
                         let mut engine = engine.get_mut();
-                        let node = engine.scene_manager.current.get_mut(node);
+                        let node = engine.scene_manager.tree.get_mut(node);
                         if node.components.len() as u32 >= comp_index {
                             break;
                         }

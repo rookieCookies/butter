@@ -1,10 +1,11 @@
+use genmap::Handle;
 use mlua::AnyUserData;
 use sti::{define_key, keyed::{KIter, KIterMut, KVec}};
 use tracing::error;
 
 use crate::{asset_manager::{texture::TextureLoadType, AssetManager, TextureId}, engine::Engine, lua::node::NodeUserData, math::vector::{Colour, Vec2, Vec4}, script_manager::{fields::{FieldId, FieldValue}, ScriptId}};
 
-use super::scene_tree::{NodeId, SceneTree};
+use super::{NodeId, scene_tree::SceneTree};
 
 define_key!(u32, pub ComponentId);
 
@@ -15,6 +16,7 @@ pub struct Node {
     pub children: Vec<NodeId>,
     pub parent: Option<NodeId>,
     pub components: Components,
+    pub queued_free: bool,
     pub userdata: Option<AnyUserData>,
 }
 
@@ -215,6 +217,7 @@ impl NodeProperties {
         self
     }
 }
+
 
 
 impl NodeProperties {

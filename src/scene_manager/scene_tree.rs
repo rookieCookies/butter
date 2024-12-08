@@ -2,26 +2,22 @@ use std::collections::HashMap;
 
 use genmap::{GenMap, Handle};
 use sti::{define_key, keyed::Key};
-use tracing::info;
+use tracing::{info, trace};
 
 use crate::{engine::Engine, math::vector::Vec2, scene_manager::node::ComponentId, script_manager::{ScriptId, ScriptManager}};
 
-use super::node::Node;
-
-define_key!(u32, pub NodeIndex);
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub struct NodeId(Handle);
+use super::{node::Node, NodeId};
 
 #[derive(Clone, Debug)]
 pub struct SceneTree {
     pub map: GenMap<Node>,
+    root: Option<NodeId>,
 }
 
 
 impl SceneTree {
     pub fn new() -> Self {
-        Self { map: GenMap::with_capacity(0) }
+        Self { map: GenMap::with_capacity(0), root: None }
     }
 
 
@@ -30,74 +26,21 @@ impl SceneTree {
     }
 
 
-    pub fn trim(&self) -> SceneTree {
-        let mut new = SceneTree::new();
-        let mut hm = HashMap::new();
-
-        for handle in self.map.iter() {
-            let node = self.map.get(handle).unwrap();
-            let new_handle = new.insert(node.clone());
-            hm.insert(NodeId(handle), new_handle);
-        }
-
-        for new_handle in hm.values() {
-            let new_handle = hm.get(new_handle).unwrap();
-            let new_node = new.map.get_mut(new_handle.0).unwrap();
-
-            for c in new_node.children.iter_mut() {
-                *c = *hm.get(c).unwrap();
-            }
-        }
-
-        new
-    }
+    pub fn len(&self) -> usize { self.map.inner_unck().len() }
 
 
-    pub fn instantiate(engine: &mut Engine, scene: &SceneTree) -> NodeId {
-        let mut hashmap = HashMap::new();
-        let mut engine_ref = engine.get_mut();
-        let this = &mut engine_ref.scene_manager.current;
+    pub fn queue_free(engine: &mut Engine, node: NodeId) {
+        info!("calling queue free on {node:?}");
 
+        // call free on everything
+        let nodes = engine.with(|engine| {
+            engine.scene_manager.tree.iter_vec(node)
+        });
 
-        let mut stack = vec![];
-        if let Some(root) = scene.root() {
-            stack.push(root);
-        }
+        for node in nodes.iter().copied() {
+            engine.get_mut().scene_manager.tree
+                .get_mut(node).queued_free = true;
 
-
-        while let Some(node_id) = stack.pop() {
-            let node = scene.get(node_id);
-
-            let insert_node = Node {
-                properties: node.properties,
-                children: vec![],
-                parent: None,
-                components: node.components.clone(),
-                userdata: None,
-                node_id // placeholder,
-            };
-
-
-            let insert_id = this.map.insert(insert_node.into());
-            let insert_node_id = NodeId(insert_id);
-            hashmap.insert(node_id, insert_node_id);
-
-            if let Some(parent) = node.parent {
-                this.set_parent(insert_node_id, Some(*hashmap.get(&parent).unwrap()));
-            }
-
-            this.get_mut(insert_node_id).node_id = insert_node_id;
-
-            stack.extend_from_slice(&node.children);
-        }
-
-        drop(engine_ref);
-
-        let nodes = scene.iter_vec();
-
-        info!("ready all nodes");
-        for node in nodes {
-            let node = hashmap.get(&node).unwrap().clone();
             let mut comp_index = 0u32;
             loop {
                 comp_index += 1;
@@ -105,20 +48,16 @@ impl SceneTree {
 
                 let (functions, userdata, path) = {
                     let mut engine = engine.get_mut();
-                    let node = engine.scene_manager.current.get_mut(node);
+                    let node = engine.scene_manager.tree.get_mut(node);
                     if comp_index >= node.components.len() as u32 {
                         break;
                     }
 
-                    let component = node.components.get_mut_index(comp_index);
-                    if component.is_ready {
-                        continue;
-                    }
 
-                    component.is_ready = true;
+                    let userdata = node.userdata_of(ComponentId::new_unck(comp_index)).clone();
 
+                    let component = node.components.get_index(comp_index);
                     let script = component.script;
-                    let userdata = node.userdata_of(ComponentId::new_unck(comp_index));
                     let script = engine.script_manager.script(script);
 
                     (
@@ -129,19 +68,19 @@ impl SceneTree {
                 };
 
 
-                functions.ready(path, &userdata);
-                println!("node {:?} idx {comp_index}", node);
+                functions.on_free(path, userdata);
             }
         }
 
 
-        *scene.root()
-            .map(|x| hashmap.get(&x).unwrap())
-            .unwrap()
+        info!("freed");
+
     }
 
 
-    pub fn len(&self) -> usize { self.map.inner_unck().len() }
+    pub fn exists(&self, handle: NodeId) -> bool {
+        self.map.get(handle.0).is_some()
+    }
 
 
     pub fn get(&self, handle: NodeId) -> &Node {
@@ -155,6 +94,8 @@ impl SceneTree {
 
 
     pub fn set_global_position(&mut self, of: NodeId, mut pos: Vec2) {
+        trace!("set global position of '{of:?}' to {pos}");
+
         let node = self.get(of);
         let mut target_parent = node.parent;
 
@@ -175,6 +116,8 @@ impl SceneTree {
 
 
     pub fn set_global_rotation(&mut self, of: NodeId, mut rot: f32) {
+        trace!("set global rotation of '{of:?}' to {rot}");
+
         let node = self.get(of);
         let mut target_parent = node.parent;
 
@@ -190,13 +133,17 @@ impl SceneTree {
     }
 
 
-    pub fn iter_vec(&self) -> Vec<NodeId> {
-        let mut stack = vec![];
-        let mut coll = vec![];
+    pub fn iter_vec_root(&self) -> Vec<NodeId> {
+        let Some(root) = self.root
+        else { return vec![] };
 
-        if let Some(root) = self.root() {
-            stack.push(root);
-        }
+        self.iter_vec(root)
+    }
+
+
+    pub fn iter_vec(&self, root: NodeId) -> Vec<NodeId> {
+        let mut stack = vec![root];
+        let mut coll = vec![];
 
 
         while let Some(node) = stack.pop() {
@@ -213,8 +160,22 @@ impl SceneTree {
 
 
     pub fn root(&self) -> Option<NodeId> {
-        if self.len() >= 1 { Some(NodeId(Handle { gen: 0, idx: 0 })) }
-        else { None }
+        self.root
+    }
+
+
+    pub fn set_root(engine: &mut Engine, node: NodeId) {
+        info!("set current scene root to {node:?}");
+
+        let engine_ref = engine.get();
+        let root = engine.get().scene_manager.tree.root;
+        drop(engine_ref);
+
+        if let Some(root) = root {
+            Self::queue_free(engine, root);
+        }
+
+        engine.get_mut().scene_manager.tree.root = Some(node);
     }
 
 
@@ -242,48 +203,3 @@ impl SceneTree {
     }
 }
 
-
-impl SceneTree {
-    pub fn to_string(&self, script_manager: &ScriptManager) -> String {
-        let this = self.trim();
-        
-        let mut nodes_file = toml::Table::new();
-
-        for (i, node) in this.map.iter().enumerate().skip(1) {
-            let node = this.map.get(node).unwrap();
-            let mut table = toml::Table::new();
-
-            table.insert("position.x".to_string(), node.properties.position.x.into());
-            table.insert("position.y".to_string(), node.properties.position.y.into());
-
-            let mut comps = toml::Table::new();
-            for (id, comp) in node.components.iter() {
-                if comp.script != ScriptId::EMPTY {
-                    let name = script_manager.script(comp.script).path();
-                    comps.insert(id.usize().to_string(), toml::Value::String(name.to_string()));
-                }
-            }
-
-            table.insert("components".to_string(), toml::Value::Table(comps));
-
-            if let Some(parent) = &node.parent {
-                table.insert("parent".to_string(), toml::Value::Integer(parent.0.idx as i64));
-            }
-
-
-            nodes_file.insert(i.to_string(), toml::Value::Table(table));
-        }
-
-
-        toml::to_string_pretty(&nodes_file).unwrap()
-    }
-}
-
-
-impl NodeId {
-    /// Creates a new `NodeId` with the generation of it being 0
-    pub fn from_idx(idx: u32) -> Self {
-        Self(Handle { gen: 0, idx: idx as usize })
-    }
-    pub fn idx(&self) -> usize { self.0.idx }
-}

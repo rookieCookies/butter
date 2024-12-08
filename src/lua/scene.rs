@@ -1,4 +1,4 @@
-use crate::{engine::Engine, scene_manager::scene_tree::SceneTree};
+use crate::{engine::Engine, scene_manager::{scene_template::TemplateScene, scene_tree::SceneTree}};
 
 pub struct Scene;
 
@@ -14,7 +14,7 @@ impl mlua::UserData for Scene {
 
         methods.add_function("load", |_, name: String| {
             let mut engine = Engine::generate();
-            let scene = SceneTree::from_file(&mut engine,
+            let scene = TemplateScene::from_file(&mut engine,
                                              &name);
             Ok(scene)
         });
@@ -22,11 +22,11 @@ impl mlua::UserData for Scene {
 }
 
 
-impl mlua::UserData for SceneTree {
+impl mlua::UserData for TemplateScene {
     fn add_methods<M: mlua::UserDataMethods<Self>>(methods: &mut M) {
         methods.add_method("instantiate", |_, this, _: ()| {
             println!("instantiate");
-            Ok(SceneTree::instantiate(&mut Engine::generate(), this))
+            Ok(this.instantiate(&mut Engine::generate()))
         });
     }
 }

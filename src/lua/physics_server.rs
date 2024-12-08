@@ -14,6 +14,11 @@ impl UserData for Physics {
             Ok(())
         });
 
+       methods.add_function("delete_rigidbody", |_, rb: RigidBodyId| {
+            Engine::generate().get_mut().scene_manager.physics.delete_rb(rb);
+            Ok(())
+        });
+
        methods.add_function("create_rect_collider", |lua, (node, width, height): (NodeUserData, f32, f32)| {
             let userdata = Engine::generate().get_mut().scene_manager.physics.collider_cuboid(lua, node, Vec2::new(width, height)).1;
             Ok(userdata)

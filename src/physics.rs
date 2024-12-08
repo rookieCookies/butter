@@ -1,10 +1,11 @@
 use std::{collections::HashMap, sync::Mutex, time::Instant};
 
+use genmap::Handle;
 use mlua::{AnyUserData, Lua};
 use rapier2d::prelude::{ActiveEvents, CCDSolver, Collider, ColliderBuilder, ColliderHandle, ColliderSet, CollisionEvent, DefaultBroadPhase, ImpulseJointSet, IntegrationParameters, IslandManager, MultibodyJointSet, NarrowPhase, PhysicsPipeline, QueryPipeline, RigidBody, RigidBodyBuilder, RigidBodyHandle, RigidBodySet};
-use tracing::info;
+use tracing::{error, info};
 
-use crate::{engine::Timers, lua::node::NodeUserData, math::vector::Vec2, scene_manager::scene_tree::{NodeId, SceneTree}};
+use crate::{engine::Timers, lua::node::NodeUserData, math::vector::Vec2, scene_manager::{NodeId, scene_tree::{SceneTree}, SceneManager}};
 
 pub struct PhysicsServer {
     pub gravity: Vec2,
@@ -53,6 +54,8 @@ impl PhysicsServer {
 
 
     pub fn set_framerate(&mut self, fps: usize) {
+        info!("set physics framerate to {fps}");
+
         let dt = 1.0/fps as f32;
         self.integration_params.dt = dt;
     }
@@ -75,7 +78,8 @@ impl PhysicsServer {
 
     pub fn create_kinematic_rigidbody(&mut self, lua: &Lua, owner: NodeId) -> (RigidBodyId, AnyUserData) {
         info!("creating a kinematic rigid body");
-        let id = RigidBodyId(self.rigid_body_set.insert(RigidBodyBuilder::kinematic_velocity_based().build()));
+        let userdata = unsafe { core::mem::transmute([owner.0.gen, owner.0.idx]) };
+        let id = RigidBodyId(self.rigid_body_set.insert(RigidBodyBuilder::kinematic_velocity_based().user_data(userdata).build()));
         let userdata = lua.create_userdata(id).unwrap();
         self.rigidbody_userdata.insert(id, userdata.clone());
         self.node_to_rigidbody.insert(owner, id);
@@ -85,7 +89,8 @@ impl PhysicsServer {
 
     pub fn create_dynamic_rigidbody(&mut self, lua: &Lua, owner: NodeId) -> (RigidBodyId, AnyUserData) {
         info!("creating a dynamic rigid body");
-        let id = RigidBodyId(self.rigid_body_set.insert(RigidBodyBuilder::dynamic().build()));
+        let userdata = unsafe { core::mem::transmute([owner.0.gen, owner.0.idx]) };
+        let id = RigidBodyId(self.rigid_body_set.insert(RigidBodyBuilder::dynamic().user_data(userdata).build()));
         let userdata = lua.create_userdata(id).unwrap();
         self.rigidbody_userdata.insert(id, userdata.clone());
         self.node_to_rigidbody.insert(owner, id);
@@ -107,8 +112,23 @@ impl PhysicsServer {
         self.collider_set.set_parent(cl.0, Some(rb.0), &mut self.rigid_body_set);
     }
 
+
     pub fn delete_collider(&mut self, collider: ColliderId) {
+        self.collider_userdata.remove(&collider);
         self.collider_set.remove(collider.0, &mut self.island_manager, &mut self.rigid_body_set, true);
+    }
+
+    
+    pub fn delete_rb(&mut self, rbid: RigidBodyId) {
+        let rb = self.rigid_body_set.get(rbid.0).unwrap();
+        if !rb.is_fixed() {
+            let [gen, idx] = unsafe { core::mem::transmute(rb.user_data) };
+            let node = NodeId(Handle { gen, idx });
+            self.node_to_rigidbody.remove(&node);
+        }
+
+        self.rigidbody_userdata.remove(&rbid);
+        self.rigid_body_set.remove(rbid.0, &mut self.island_manager, &mut self.collider_set, &mut self.impulse_joint_set, &mut self.multibody_joint_set, false);
     }
 
 
@@ -206,10 +226,18 @@ impl PhysicsServer {
 
         {
             let timer = Instant::now();
+            let mut to_be_removed = vec![];
 
             for (node_id, rb) in self.node_to_rigidbody.iter() {
+                if !scene.exists(*node_id) {
+                    error!("the node '{node_id:?}' is attached to '{rb:?}' \
+                           but the node was freed without detaching from the \
+                           rigidbody. detaching.");
+                    to_be_removed.push(*node_id);
+                }
+
                 let rb = self.rigid_body_set.get(rb.0).unwrap();
-                //if rb.body_type().is_fixed() { continue }
+                if rb.is_fixed() { continue }
 
                 let pos = rb.position();
                 let pos = Vec2::new(pos.translation.x, pos.translation.y);
@@ -217,6 +245,11 @@ impl PhysicsServer {
 
                 scene.set_global_position(*node_id, pos);
                 scene.set_global_rotation(*node_id, rot);
+            }
+
+
+            for node in to_be_removed.iter() {
+                self.node_to_rigidbody.remove(&node);
             }
 
             timers.physics_engine_conv_time = timer.elapsed();
@@ -292,24 +325,20 @@ impl rapier2d::prelude::EventHandler for EventHandler {
         _contact_pair: &rapier2d::prelude::ContactPair,
         _total_force_magnitude: f32,
     ) {
-        dbg!(dt);
     }
 }
 
 
 impl rapier2d::prelude::PhysicsHooks for EventHandler {
     fn filter_contact_pair(&self, _context: &rapier2d::prelude::PairFilterContext) -> Option<rapier2d::prelude::SolverFlags> {
-        dbg!("hi");
         Some(rapier2d::prelude::SolverFlags::COMPUTE_IMPULSES)
     }
 
     fn filter_intersection_pair(&self, _context: &rapier2d::prelude::PairFilterContext) -> bool {
-        dbg!("hi");
         true
     }
 
     fn modify_solver_contacts(&self, _context: &mut rapier2d::prelude::ContactModificationContext) {
-        dbg!("hi");
     }
 }
 
