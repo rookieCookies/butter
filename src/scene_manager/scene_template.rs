@@ -1,10 +1,11 @@
 use std::collections::HashMap;
 
 use sti::{define_key, keyed::KVec};
+use tracing::{info, info_span};
 
 use crate::{engine::Engine, scene_manager::node::{Components, Node}, script_manager::{fields::{FieldId, FieldValue}, ScriptId}};
 
-use super::{node::{Component, ComponentId, NodeProperties}, NodeId, SceneManager};
+use super::{node::{Component, ComponentId, NodeProperties}, NodeId, SceneManager, TemplateId};
 
 
 define_key!(u32, pub TemplateNodeId);
@@ -53,13 +54,16 @@ impl TemplateScene {
     }
 
 
-    pub fn instantiate(&self, engine: &mut Engine) -> Option<NodeId> {
+    pub fn instantiate(engine: &mut Engine, template_id: TemplateId) -> Option<NodeId> {
+        info!("instantiating template scene {template_id:?}");
         let mut hashmap = HashMap::new();
         let mut engine_ref = engine.get_mut();
         let sm = &mut engine_ref.scene_manager;
 
+        let this = &sm.templates[template_id];
+
         let mut root = None;
-        for (node_id, template_node) in self.nodes.iter() {
+        for (node_id, template_node) in this.nodes.iter() {
             if root == None {
                 root = Some(node_id);
             }

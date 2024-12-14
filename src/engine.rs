@@ -1,9 +1,10 @@
 use std::{cell::{Ref, RefCell, RefMut}, ptr::null, time::{Duration, Instant}};
 
+use rapier2d::crossbeam::epoch::Pointable;
 use sokol::{debugtext as sdtx, app as sapp, time as stime};
 use tracing::{error, info, trace, Level};
 
-use crate::{asset_manager::AssetManager, event_manager::{EventManager, Keycode}, input_manager::InputManager, lua::{self}, math::vector::{Colour, Vec2, Vec3, Vec4}, renderer::Renderer, scene_manager::{node::{ComponentId, NodeProperties}, scene_template::TemplateScene, scene_tree::SceneTree, SceneManager}, script_manager::ScriptManager, settings::ProjectSettings, Camera};
+use crate::{asset_manager::AssetManager, event_manager::{EventManager, Keycode}, input_manager::InputManager, lua::{self}, math::vector::{Colour, Vec2, Vec3, Vec4}, renderer::Renderer, scene_manager::{node::NodeProperties, scene_template::TemplateScene, scene_tree::SceneTree, SceneManager}, script_manager::ScriptManager, settings::ProjectSettings, Camera};
 
 
 static mut ENGINE : *const EngineStatic = null();
@@ -73,7 +74,7 @@ impl Engine {
             asset_manager: AssetManager::new(),
             scene_manager: SceneManager::new(project_settings.world.gravity),
             renderer: Renderer::new(&project_settings),
-            camera: Camera::new(Vec3::new(0.0, 0.0, 0.0), Vec3::new(0.0, 1.0, 0.0), 50.0),
+            camera: Camera::new(Vec3::new(0.0, 0.0, 0.0), Vec3::new(0.0, 1.0, 0.0), 25.0),
 
             last_frame: 0,
             now: 0.0,
@@ -109,8 +110,9 @@ impl Engine {
 
 
     pub fn change_scene(engine: &mut Engine, scene: &str) {
-        let template_scene = TemplateScene::from_file(engine, scene);
-        let Some(node) = template_scene.instantiate(engine)
+        let template_id = SceneManager::template_from_file(engine, scene);
+
+        let Some(node) = TemplateScene::instantiate(engine, template_id)
         else { return };
 
         SceneTree::set_root(engine, node);
@@ -135,6 +137,9 @@ impl Engine {
         });
 
         ScriptManager::load_current_dir(engine);
+
+        SceneManager::init_templates(engine);
+
         Engine::change_scene(engine, &Engine::project_settings().world.entry_scene);
     }
 
@@ -176,23 +181,19 @@ impl Engine {
             let timer = Instant::now();
             
             for node in nodes.iter().copied() {
-                trace!("updating {:?}", node);
-                let mut comp_index = 0u32;
-                loop {
-                    comp_index += 1;
-                    let comp_index = comp_index - 1;
-
+                let comps = {
+                    let mut engine = engine.get_mut();
+                    let node = engine.scene_manager.tree.get_mut(node);
+                    node.components.iter()
+                };
+                
+                for comp in comps {
                     let (functions, userdata, path) = {
                         let mut engine = engine.get_mut();
                         let node = engine.scene_manager.tree.get_mut(node);
-                        if comp_index >= node.components.len() as u32 {
-                            break;
-                        }
+                        let userdata = node.userdata_of(comp).clone();
 
-
-                        let userdata = node.userdata_of(ComponentId::new_unck(comp_index)).clone();
-
-                        let component = node.components.get_index(comp_index);
+                        let component = node.components.get(comp);
                         let script = component.script;
                         let script = engine.script_manager.script(script);
 
@@ -208,6 +209,7 @@ impl Engine {
                 }
 
             }
+
             trace!("updated");
             engine.with(|engine|
                          engine.timers.node_update_time = timer.elapsed());
@@ -242,9 +244,7 @@ impl Engine {
                 }
                 trace!("finished actually freeing nodes that were queue freed");
             });
-            drop(nodes);
         }
-
 
 
         engine.with(|engine| {
@@ -350,18 +350,20 @@ impl Engine {
 
                 lua::draw::Draw::register();
 
-                let comp_index = 0u32;
-                loop {
+
+                let comps = {
+                    let mut engine = engine.get_mut();
+                    let node = engine.scene_manager.tree.get_mut(node);
+                    node.components.iter()
+                };
+
+                for comp in comps {
                     let (functions, userdata, path) = {
                         let mut engine = engine.get_mut();
                         let node = engine.scene_manager.tree.get_mut(node);
-                        if node.components.len() as u32 >= comp_index {
-                            break;
-                        }
+                        let userdata = node.userdata_of(comp);
 
-                        let userdata = node.userdata_of(ComponentId::new_unck(comp_index));
-
-                        let component = node.components.get_index(comp_index);
+                        let component = node.components.get(comp);
                         let script = component.script;
                         let script = engine.script_manager.script(script);
 

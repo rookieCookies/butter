@@ -13,7 +13,6 @@ pub mod engine;
 pub mod deserialize;
 pub mod scene_manager;
 pub mod renderer;
-pub mod timer;
 
 use core::str;
 use std::{ffi::CString, process::exit};
@@ -311,6 +310,7 @@ pub struct Camera {
     ortho: f32,
 }
 
+
 impl Camera {
     fn new(position: Vec3, up: Vec3, ortho: f32) -> Self {
         Self { position, up, ortho }
@@ -332,5 +332,4 @@ pub fn to_cstring(name: &str, mut val: String) -> CString {
 
     CString::new(val).unwrap()
 }
-
 

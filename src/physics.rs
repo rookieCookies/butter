@@ -5,7 +5,7 @@ use mlua::{AnyUserData, Lua};
 use rapier2d::prelude::{ActiveEvents, CCDSolver, Collider, ColliderBuilder, ColliderHandle, ColliderSet, CollisionEvent, DefaultBroadPhase, ImpulseJointSet, IntegrationParameters, IslandManager, MultibodyJointSet, NarrowPhase, PhysicsPipeline, QueryPipeline, RigidBody, RigidBodyBuilder, RigidBodyHandle, RigidBodySet};
 use tracing::{error, info};
 
-use crate::{engine::Timers, lua::node::NodeUserData, math::vector::Vec2, scene_manager::{NodeId, scene_tree::{SceneTree}, SceneManager}};
+use crate::{engine::Timers, lua::node::NodeUserData, math::vector::Vec2, scene_manager::{NodeId, scene_tree::SceneTree}};
 
 pub struct PhysicsServer {
     pub gravity: Vec2,
@@ -319,7 +319,7 @@ impl rapier2d::prelude::EventHandler for EventHandler {
 
     fn handle_contact_force_event(
         &self,
-        dt: f32,
+        _dt: f32,
         _bodies: &RigidBodySet,
         _colliders: &ColliderSet,
         _contact_pair: &rapier2d::prelude::ContactPair,

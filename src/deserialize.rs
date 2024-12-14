@@ -3,11 +3,11 @@ use std::str::FromStr;
 use sti::keyed::KVec;
 use tracing::{error, info, trace, warn, Level};
 
-use crate::{engine::Engine, math::vector::Vec3, scene_manager::{node::NodeProperties, scene_template::{TemplateComponent, TemplateComponents, TemplateNode, TemplateNodeId, TemplateScene}, NodeId}, script_manager::{fields::{FieldType, FieldValue}, ScriptManager}};
+use crate::{engine::Engine, math::vector::Vec3, scene_manager::{node::NodeProperties, scene_template::{TemplateComponent, TemplateComponents, TemplateNode, TemplateNodeId, TemplateScene}}, script_manager::{fields::{FieldType, FieldValue}, ScriptManager}};
 
 impl TemplateScene {
-    /// Loads a file as a 'SceneTree'
-    /// Returns an empty 'SceneTree' if an error occurs
+    /// Loads a file as a 'TemplateScene'
+    /// Returns an empty 'TemplateScene' if an error occurs
     pub fn from_file<A>(engine: &mut Engine, path: A) -> TemplateScene
     where A: AsRef<std::path::Path> {
         let path = path.as_ref();
@@ -38,8 +38,8 @@ impl TemplateScene {
     }
 
 
-    /// Loads a file as a 'SceneTree'
-    /// Returns an empty 'SceneTree' if an error occurs
+    /// Loads a file as a 'TemplateScene'
+    /// Returns an empty 'TemplateScene' if an error occurs
     pub fn from_table(engine: &mut Engine, table: &toml::Table) -> TemplateScene {
         let mut scene = TemplateScene::new();
         let inner_scene = scene.inner_mut();

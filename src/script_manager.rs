@@ -35,9 +35,8 @@ pub struct ScriptFunctions {
     update: Option<mlua::Function>,
     texture: Option<mlua::Function>,
     draw: Option<mlua::Function>,
-    on_free: Option<mlua::Function>,
+    queue_free: Option<mlua::Function>,
 }
-
 
 
 macro_rules! unwrap_lua {
@@ -59,7 +58,14 @@ impl ScriptManager {
         let mut scripts = KVec::new();
         let functions = ScriptFunctions::default();
 
-        scripts.push(Script { path: "<default>", name: String::new(), fields_ids: HashMap::new(), fields_vec: KVec::new(), functions });
+        scripts.push(Script {
+            path: "<default>",
+            name: String::new(),
+            fields_ids: HashMap::new(),
+            fields_vec: KVec::new(),
+            functions
+        });
+
  
         Self {
             scripts,
@@ -149,11 +155,13 @@ impl ScriptManager {
             return ScriptId::EMPTY;
         };
 
+
         let Ok(file) = std::fs::read(path)
         else {
             error!("unable to read '{path}'");
             return ScriptId::EMPTY;
         };
+
 
         // we drop the engine ref so the handle is free
         drop(engine_ref);
@@ -240,7 +248,7 @@ impl ScriptManager {
         let update = retrieve_func("update");
         let texture = retrieve_func("texture");
         let draw = retrieve_func("draw");
-        let on_free = retrieve_func("on_free");
+        let queue_free = retrieve_func("queue_free");
         let fields = retrieve_table("fields");
 
         for entry in properties.pairs::<mlua::Value, mlua::Value>() {
@@ -259,7 +267,7 @@ impl ScriptManager {
         }
 
 
-        let funcs = ScriptFunctions { ready, update, texture, draw, on_free };
+        let funcs = ScriptFunctions { ready, update, texture, draw, queue_free };
         let script = Script { path: path.to_string().leak(), name: String::new(), fields_ids: HashMap::new(), fields_vec: KVec::new(), functions: funcs };
 
         let id = sm.scripts.push(script);
@@ -346,11 +354,11 @@ impl ScriptFunctions {
     }
 
 
-    pub fn on_free(&self, path: &str, user_data: AnyUserData) {
-        let Some(draw) = &self.on_free
+    pub fn queue_free(&self, path: &str, user_data: AnyUserData) {
+        let Some(queue_free) = &self.queue_free
         else { return };
 
-        if let Err(e) = draw.call::<()>(user_data) {
+        if let Err(e) = queue_free.call::<()>(user_data) {
             error!("on free of '{}': \n{e}", path);
         }
     }

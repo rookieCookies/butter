@@ -1,6 +1,5 @@
-use genmap::Handle;
 use mlua::AnyUserData;
-use sti::{define_key, keyed::{KIter, KIterMut, KVec}};
+use sti::{define_key, keyed::{KIterMut, KVec}};
 use tracing::error;
 
 use crate::{asset_manager::{texture::TextureLoadType, AssetManager, TextureId}, engine::Engine, lua::node::NodeUserData, math::vector::{Colour, Vec2, Vec4}, script_manager::{fields::{FieldId, FieldValue}, ScriptId}};
@@ -44,6 +43,12 @@ pub struct Component {
     pub fields: KVec<FieldId, FieldValue>,
     pub is_ready: bool,
     userdata: Option<AnyUserData>,
+}
+
+
+pub struct ComponentIter {
+    curr: u32,
+    max: u32,
 }
 
 
@@ -173,8 +178,8 @@ impl Components {
     }
 
 
-    pub fn iter<'a>(&'a self) -> KIter<'a, ComponentId, Component> {
-        self.vec.iter()
+    pub fn iter(&self) -> ComponentIter {
+        ComponentIter { curr: 0, max: self.vec.len() as u32 }
     }
 
 
@@ -310,5 +315,17 @@ impl NodeProperties {
             table.insert("texture".to_string(), script.into());
         }
         table
+    }
+}
+
+
+impl Iterator for ComponentIter {
+    type Item = ComponentId;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.curr >= self.max { return None }
+
+        self.curr += 1;
+        Some(ComponentId::new_unck(self.curr-1))
     }
 }

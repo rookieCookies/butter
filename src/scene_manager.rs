@@ -1,11 +1,11 @@
 use std::collections::HashMap;
 
-use genmap::{GenMap, Handle};
-use node::{ComponentId, Node};
+use genmap::Handle;
+use node::ComponentId;
 use scene_template::TemplateScene;
 use scene_tree::SceneTree;
 use sti::{define_key, keyed::KVec};
-use tracing::info;
+use tracing::{error, info};
 
 use crate::{engine::Engine, math::vector::Vec2, physics::PhysicsServer};
 
@@ -24,11 +24,19 @@ pub struct SceneManager {
     pub physics: PhysicsServer,
     pub tree: SceneTree,
     pub queue_change: Option<TemplateScene>,
+    initialized: InitState,
 }
 
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub struct NodeId(pub Handle);
+
+
+#[derive(Debug)]
+pub enum InitState {
+    NotInitialized(KVec<TemplateId, String>),
+    Initialized,
+}
 
 
 impl SceneManager {
@@ -38,8 +46,64 @@ impl SceneManager {
             physics: PhysicsServer::new(gravity),
             templates: KVec::new(),
             tree: SceneTree::new(),
-            queue_change: None
+            queue_change: None,
+            initialized: InitState::NotInitialized(KVec::new()),
         }
+    }
+
+
+    pub fn template_from_file(engine: &mut Engine, path: &str) -> TemplateId {
+        info!("loading template at '{path}'");
+        {
+            let mut engine = engine.get_mut();
+            match &mut engine.scene_manager.initialized {
+                InitState::NotInitialized(kvec) => {
+                    info!("scene manager not initialized");
+                    return kvec.push(path.to_string());
+                },
+                
+                _ => (),
+            }
+        }
+
+        info!("scene manager initialized");
+        let scene = TemplateScene::from_file(engine, path);
+        engine.with(|engine| engine.scene_manager.templates.push(scene))
+    }
+
+
+    pub fn init_templates(engine: &mut Engine) {
+        info!("initializing scene manager templates");
+
+        let mut engine_ref = engine.get_mut();
+
+        let InitState::NotInitialized(kvec) = 
+            &mut engine_ref.scene_manager.initialized
+        else {
+            error!("scene manager has already initialized templates");
+            return;
+        };
+
+
+        let kvec = core::mem::replace(kvec, KVec::new());
+
+
+        drop(engine_ref);
+
+        let mut templates = KVec::new();
+
+        for (id, path) in kvec.iter() {
+            let template = TemplateScene::from_file(engine, &path);
+            let given_id = templates.push(template);
+
+            debug_assert_eq!(id, given_id);
+        }
+
+        engine.with(|engine| {
+            assert!(engine.scene_manager.templates.is_empty());
+            engine.scene_manager.templates = templates;
+            engine.scene_manager.initialized = InitState::Initialized
+        });
     }
 
 

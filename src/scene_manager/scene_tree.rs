@@ -1,10 +1,7 @@
-use std::collections::HashMap;
-
-use genmap::{GenMap, Handle};
-use sti::{define_key, keyed::Key};
+use genmap::GenMap;
 use tracing::{info, trace};
 
-use crate::{engine::Engine, math::vector::Vec2, scene_manager::node::ComponentId, script_manager::{ScriptId, ScriptManager}};
+use crate::{engine::Engine, math::vector::Vec2};
 
 use super::{node::Node, NodeId};
 
@@ -41,22 +38,19 @@ impl SceneTree {
             engine.get_mut().scene_manager.tree
                 .get_mut(node).queued_free = true;
 
-            let mut comp_index = 0u32;
-            loop {
-                comp_index += 1;
-                let comp_index = comp_index - 1;
+            let comps = {
+                let mut engine = engine.get_mut();
+                let node = engine.scene_manager.tree.get_mut(node);
+                node.components.iter()
+            };
 
+            for comp in comps {
                 let (functions, userdata, path) = {
                     let mut engine = engine.get_mut();
                     let node = engine.scene_manager.tree.get_mut(node);
-                    if comp_index >= node.components.len() as u32 {
-                        break;
-                    }
+                    let userdata = node.userdata_of(comp);
 
-
-                    let userdata = node.userdata_of(ComponentId::new_unck(comp_index)).clone();
-
-                    let component = node.components.get_index(comp_index);
+                    let component = node.components.get(comp);
                     let script = component.script;
                     let script = engine.script_manager.script(script);
 
@@ -68,7 +62,7 @@ impl SceneTree {
                 };
 
 
-                functions.on_free(path, userdata);
+                functions.queue_free(path, userdata);
             }
         }
 
