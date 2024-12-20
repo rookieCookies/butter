@@ -11,7 +11,7 @@ pub mod engine;
 use draw::Draw;
 use input::Input;
 use math::Math;
-use mlua::{Lua, UserData};
+use mlua::{Function, Lua, UserData};
 use physics_server::Physics;
 use scene::Scene;
 use texture::LuaTexture;
@@ -43,5 +43,4 @@ pub fn setup_lua_environment(lua: &Lua) {
     register(lua, "SceneManager", Scene);
     register(lua, "Engine", engine::Engine);
 }
-
 

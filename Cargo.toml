@@ -10,8 +10,7 @@ sokol = { path = "./vendor/sokol-rust" }
 tracing = "*"
 tracing-subscriber = "*"
 sti = { path = "./vendor/sti" }
-mlua-sys = { version="*", features = ["luau", "vendored"] }
-mlua = { version="*", features = ["luau", "vendored"] }
+mlua = { version = "*", features = ["luau", "vendored"] }
 genmap = { path = "./vendor/genmap" }
 image = "*"
 rapier2d = { version = "*", features = ["parallel", "simd-nightly"] }
@@ -21,3 +20,7 @@ derive-macros = { path = "./derive-macros" }
 
 [dev-dependencies]
 cgmath = "*"
+
+
+[profile.dev.package.rapier2d]
+opt-level = 3

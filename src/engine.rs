@@ -1,10 +1,10 @@
 use std::{cell::{Ref, RefCell, RefMut}, ptr::null, time::{Duration, Instant}};
 
-use rapier2d::crossbeam::epoch::Pointable;
+use mlua::{Compiler, Function};
 use sokol::{debugtext as sdtx, app as sapp, time as stime};
 use tracing::{error, info, trace, Level};
 
-use crate::{asset_manager::AssetManager, event_manager::{EventManager, Keycode}, input_manager::InputManager, lua::{self}, math::vector::{Colour, Vec2, Vec3, Vec4}, renderer::Renderer, scene_manager::{node::NodeProperties, scene_template::TemplateScene, scene_tree::SceneTree, SceneManager}, script_manager::ScriptManager, settings::ProjectSettings, Camera};
+use crate::{asset_manager::AssetManager, event_manager::{EventManager, Keycode}, input_manager::InputManager, lua::{self}, math::vector::{Colour, Vec2, Vec3, Vec4}, physics::PhysicsServer, renderer::Renderer, scene_manager::{node::NodeProperties, scene_template::TemplateScene, scene_tree::SceneTree, SceneManager}, script_manager::ScriptManager, settings::ProjectSettings, Camera};
 
 
 static mut ENGINE : *const EngineStatic = null();
@@ -89,6 +89,12 @@ impl Engine {
             project_settings,
         };
 
+        slf.lua.globals().set("not_set", 0).unwrap();
+
+        slf.lua.set_compiler(Compiler::new()
+                             .set_debug_level(2)
+                             .set_coverage_level(2));
+
         let b = Box::leak(Box::new(slf));
         unsafe { ENGINE = b };
 
@@ -105,7 +111,6 @@ impl Engine {
     pub fn lua() -> &'static mlua::Lua {
         assert!(unsafe { !ENGINE.is_null() });
         unsafe { &(*ENGINE).lua }
-
     }
 
 
@@ -216,10 +221,8 @@ impl Engine {
         }
         
 
-        let events = engine.with(|engine| {
-            engine.scene_manager.physics.tick(&mut engine.scene_manager.tree,
-                                              &mut engine.timers)
-        });
+        let events = PhysicsServer::tick(engine);
+
         {
             trace!("call events");
 
@@ -501,6 +504,5 @@ impl Engine {
         let mut engine = Self::get_mut(self);
         f(&mut engine)
     }
-
-
 }
+

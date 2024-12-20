@@ -1,4 +1,10 @@
-local function ready(self)
+class_name = "RigidBody"
+kind = "dynamic"
+physics_rb = not_set
+collider = not_set
+
+
+function _ready(self)
     self.collider = self:get_component("Collider")
 
     if self.collider == nil then
@@ -24,14 +30,7 @@ local function ready(self)
 end
 
 
-return {
-    ready = ready,
-    name = "RigidBody",
+function _queue_free(self)
+    PhysicsServer.delete_rigidbody(self.physics_rb)
+end
 
-    fields = {
-        collider = "Collider",
-        kind = "str = \"dynamic\"",
-        physics_rb = "any",
-        velocity = "@export float",
-    }
-}

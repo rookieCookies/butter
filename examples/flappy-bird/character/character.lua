@@ -1,8 +1,14 @@
+class_name = "Player"
+
+started = false
+velocity = Math.vec2(0.0, 0.0)
+rb = not_set
+
 local upflap = Texture.from_rgbaf32("character/upflap.png")
 local midflap = Texture.from_rgbaf32("character/midflap.png")
 local downflap = Texture.from_rgbaf32("character/downflap.png")
 
-local function update(self)
+function _update(self)
     if not self.started then
         self.rb.physics_rb.velocity = Math.vec3(0.0, 0.0, 0.0)
         self.position = Math.vec3(0.0, 0.0, 0.0)
@@ -32,11 +38,16 @@ end
 
 
 local function on_collision(self, collision)
-    SceneManager.restart_game()
+    local player = self:get_component("Player")
+    if not player.started then return end
+
+    if collision.parent:get_component("Pipe") then
+        SceneManager.restart_game()
+    end
 end 
 
 
-local function ready(self)
+function _ready(self)
     self.rb = self:get_component("RigidBody")
     PhysicsServer.attach_collider_event(
         self:get_component("Collider").physics_collider,
@@ -46,18 +57,3 @@ local function ready(self)
 
 end
 
-
-return {
-    ready = ready,
-    update = update,
-    draw = draw,
-
-    name = "Player",
-
-    fields = {
-        velocity = "@export vec3",
-        speed = "@export float = 500.0",
-        rb = "RigidBody",
-        started = "bool",
-    }
-}

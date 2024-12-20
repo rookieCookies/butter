@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use sti::{define_key, keyed::KVec};
-use tracing::{info, info_span};
+use tracing::info;
 
 use crate::{engine::Engine, scene_manager::node::{Components, Node}, script_manager::{fields::{FieldId, FieldValue}, ScriptId}};
 

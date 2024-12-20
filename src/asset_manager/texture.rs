@@ -128,14 +128,14 @@ impl TextureBuilder {
 
 
     pub fn label(mut self, label: &str) -> Self {
-        info!("texture builder name '{}' -> '{label}'", self.label);
+        trace!("texture builder name '{}' -> '{label}'", self.label);
         self.label = label.to_string();
         self
     }
 
 
     pub fn data(mut self, data: Box<[u8]>) -> Self {
-        info!("updated the data of the texture builder named '{}'", self.label);
+        trace!("updated the data of the texture builder named '{}'", self.label);
         self.data = data;
         self
     }

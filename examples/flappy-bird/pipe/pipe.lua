@@ -1,4 +1,8 @@
-local function update(self)
+class_name = "Pipe"
+speed = 1.0
+started = false
+
+function _update(self)
     if not self.started then
         return
     end
@@ -11,18 +15,3 @@ local function update(self)
     end
 end
 
-
-return {
-    ready = ready,
-    update = update,
-
-    name = "Pipe",
-
-    fields = {
-        velocity = "@export vec3",
-        speed = "@export float = 500.0",
-        rb = "RigidBody",
-        started = "bool",
-        speed = "float = 1.0"
-    }
-}

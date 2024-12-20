@@ -67,7 +67,7 @@ impl AssetManager {
 
 
     pub fn from_script(engine: &mut Engine, path: &str) -> Option<TextureId> {
-        let script = ScriptManager::load_script(engine, path);
+        let script = ScriptManager::from_path(engine, path);
         let engine = engine.get();
         let script = engine.script_manager.script(script);
 

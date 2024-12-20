@@ -2,7 +2,7 @@ use mlua::{AnyUserData, Error, FromLua, Value, Vector};
 use rapier2d::{math::Rotation, na::Isometry2};
 use tracing::info;
 
-use crate::{engine::Engine, math::vector::Vec3, scene_manager::{node::ComponentId, NodeId}, script_manager::fields::{FieldType, FieldValue}};
+use crate::{engine::Engine, math::vector::Vec3, scene_manager::{node::ComponentId, NodeId}, script_manager::fields::FieldValue};
 
 #[derive(Debug, Clone, Copy)]
 pub struct NodeUserData(pub NodeId, pub ComponentId);
@@ -114,60 +114,27 @@ impl<'a> mlua::UserData for NodeUserData {
             
             let script = engine.script_manager.script(comp.script);
 
-            let Some(field) = script.fields_ids.get(&name)
+            let Some(field) = script.fields.get(&name)
             else { return Err(Error::RuntimeError(format!("field '{}' doesn't exist", name))) };
 
             let field = &comp.fields[*field];
-
-            let val = match field {
-                FieldValue::Float(v) => mlua::Value::Number(*v),
-                FieldValue::Integer(v) => mlua::Value::Integer(*v),
-                FieldValue::Vec3(vec3) => mlua::Value::Vector(Vector::new(vec3.x, vec3.y, vec3.z)),
-                FieldValue::Table(table) => mlua::Value::Table(table.clone()),
-                FieldValue::Script(Some(any_user_data)) => mlua::Value::UserData(any_user_data.clone()),
-                FieldValue::Script(None) => mlua::Value::Nil,
-                FieldValue::Any(value) => value.clone(),
-                FieldValue::Bool(v) => mlua::Value::Boolean(*v),
-                FieldValue::String(v) => mlua::Value::String(mlua::String::from(v.clone())),
-            };
-
-            Ok(val)
+            Ok(field.value().clone())
         });
 
+
         methods.add_meta_method("__newindex", |lua, NodeUserData(node, comp), (name, value): (String, mlua::Value)| {
-            let (field_id, field) = Engine::generate().with(|engine| {
+            Engine::generate().with(|engine| {
                 let node = engine.scene_manager.tree.get_mut(*node);
                 let comp = node.components.get_mut(*comp);
                 
                 let script = engine.script_manager.script(comp.script);
 
-                let Some(field) = script.fields_ids.get(&name)
-                else { return Err(Error::RuntimeError(format!("field '{}' doesn't exist", name))) };
+                let Some(field) = script.fields.get(&name)
+                else { return Err(Error::RuntimeError(format!("eigj field '{}' doesn't exist", name))) };
 
-                Ok((*field, script.fields_vec[*field].ty))
+                comp.fields[*field] = FieldValue::new(value);
+                Ok(())
             })?;
-
-            let field = match field {
-                FieldType::Float => FieldValue::Float(f64::from_lua(value, lua)?),
-                FieldType::Integer => FieldValue::Integer(i32::from_lua(value, lua)?),
-                FieldType::Bool => FieldValue::Bool(bool::from_lua(value, lua)?),
-                FieldType::String => FieldValue::String(mlua::String::from_lua(value, lua)?),
-                FieldType::Vec3 => FieldValue::Vec3(Vec3::from_lua(value, lua)?),
-                FieldType::AnyTable => FieldValue::Table(mlua::Table::from_lua(value, lua)?),
-                FieldType::Script(_) => {
-                    // @TODO: CHECK THE TYPE OF THE SCRIPT
-                    if !value.is_nil() { FieldValue::Script(Some(AnyUserData::from_lua(value, lua)?)) }
-                    else { FieldValue::Script(None) }
-                },
-                FieldType::Any => FieldValue::Any(value),
-            };
-
-            Engine::generate().with(|engine| {
-                let node = engine.scene_manager.tree.get_mut(*node);
-                let comp = node.components.get_mut(*comp);
-
-                comp.fields[field_id] = field;
-            });
 
             Ok(())
         });
